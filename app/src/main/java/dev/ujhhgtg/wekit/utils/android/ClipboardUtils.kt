@@ -15,3 +15,10 @@ fun copyToClipboard(context: Context, content: String) {
 }
 
 inline fun copyToClipboard(content: String) = copyToClipboard(HostInfo.application, content)
+
+inline fun readTextFromClipboard(context: Context): String? {
+    val clipboard =
+        context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    val item = clipboard.primaryClip?.getItemAt(0) ?: return null
+    return item.text?.toString()
+}

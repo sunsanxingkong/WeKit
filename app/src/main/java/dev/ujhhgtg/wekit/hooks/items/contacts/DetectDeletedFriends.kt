@@ -3,6 +3,7 @@ package dev.ujhhgtg.wekit.hooks.items.contacts
 import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.LinearWavyProgressIndicator
@@ -27,6 +28,8 @@ import dev.ujhhgtg.wekit.ui.content.DefaultColumn
 import dev.ujhhgtg.wekit.ui.content.TextButton
 import dev.ujhhgtg.wekit.ui.utils.showComposeDialog
 import dev.ujhhgtg.wekit.utils.WeLogger
+import dev.ujhhgtg.wekit.utils.android.copyToClipboard
+import dev.ujhhgtg.wekit.utils.android.showToast
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -43,10 +46,10 @@ object DetectDeletedFriends : ClickableHookItem() {
 
     private val TAG = This.Class.simpleName
 
-    private enum class AbnormalFriendStatus {
-        ThatAccountBanned,
-        ThatBlockedThis,
-        ThatDeletedThis
+    private enum class AbnormalFriendStatus(val displayName: String) {
+        ThatAccountBanned("对方账号异常"),
+        ThatBlockedThis("被拉黑"),
+        ThatDeletedThis("被删除")
     }
 
     private data class AbnormalFriend(
@@ -142,7 +145,7 @@ object DetectDeletedFriends : ClickableHookItem() {
                                         headlineContent = { Text("${friend.nickname} (${friend.remarkName})") },
                                         supportingContent = {
                                             Column {
-                                                Text("状态: ${if (friend.status == AbnormalFriendStatus.ThatBlockedThis) "被拉黑" else "被删除"}")
+                                                Text("状态: ${friend.status.displayName}")
                                                 Text("微信 ID: ${friend.wxId}")
                                                 Text("微信号: ${friend.customWxId}")
                                             }
@@ -174,7 +177,23 @@ object DetectDeletedFriends : ClickableHookItem() {
 
                     is DialogPhase.Done -> {
                         {
-                            Button(onDismiss) { Text("关闭") }
+                            Row {
+                                Button(onClick = {
+                                    val abnormalFriends = (phase as DialogPhase.Done).friends
+                                    val text = abnormalFriends.joinToString("\n\n") { friend ->
+                                        buildString {
+                                            appendLine("昵称: ${friend.nickname}")
+                                            appendLine("备注: ${friend.remarkName}")
+                                            appendLine("微信 ID: ${friend.wxId}")
+                                            appendLine("微信号: ${friend.customWxId}")
+                                            appendLine("状态: ${friend.status.displayName}")
+                                        }
+                                    }
+                                    copyToClipboard(context, text)
+                                    showToast(context, "已复制")
+                                }) { Text("复制") }
+                                Button(onDismiss) { Text("关闭") }
+                            }
                         }
                     }
 

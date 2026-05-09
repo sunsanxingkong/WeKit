@@ -34,7 +34,9 @@ import com.composables.icons.materialsymbols.MaterialSymbols
 import com.composables.icons.materialsymbols.outlined.Add
 import com.composables.icons.materialsymbols.outlined.Delete
 import com.composables.icons.materialsymbols.outlined.Person_search
+import dev.ujhhgtg.comptime.nameOf
 import dev.ujhhgtg.wekit.hooks.api.core.WeDatabaseApi
+import dev.ujhhgtg.wekit.hooks.api.core.WeMessageApi
 import dev.ujhhgtg.wekit.hooks.api.core.models.IWeContact
 import dev.ujhhgtg.wekit.hooks.api.core.models.WeContact
 import dev.ujhhgtg.wekit.hooks.core.ClickableHookItem
@@ -45,8 +47,16 @@ import dev.ujhhgtg.wekit.ui.content.IconButton
 import dev.ujhhgtg.wekit.ui.content.SingleContactSelector
 import dev.ujhhgtg.wekit.ui.content.TextButton
 import dev.ujhhgtg.wekit.ui.utils.showComposeDialog
+import dev.ujhhgtg.wekit.utils.WeLogger
 import dev.ujhhgtg.wekit.utils.android.copyToClipboard
+import dev.ujhhgtg.wekit.utils.android.readTextFromClipboard
 import dev.ujhhgtg.wekit.utils.android.showToast
+import dev.ujhhgtg.wekit.utils.serialization.XmlJsonParser
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -126,6 +136,61 @@ private fun ChatRecordXmlGeneratorDialog(
 
                 Spacer(Modifier.height(12.dp))
 
+                Button(
+                    onClick = {
+                        val clipboardText = readTextFromClipboard(context)
+                        if (clipboardText.isNullOrBlank()) {
+                            showToast(context, "剪贴板为空")
+                            return@Button
+                        }
+                        runCatching {
+                            val outerJson = XmlJsonParser.toJsonObject(clipboardText)
+                            val appmsg = outerJson["msg"]?.jsonObject?.get("appmsg")?.jsonObject ?: error("未找到 appmsg")
+                            val parsedTitle = appmsg["title"]?.jsonPrimitive?.contentOrNull
+                            val parsedDesc = appmsg["des"]?.jsonPrimitive?.contentOrNull
+                            val recordItemCdata = appmsg["recorditem"]!!.jsonPrimitive.content
+                            if (recordItemCdata.isBlank()) {
+                                error("recorditem 内容为空")
+                            }
+                            val innerJson = XmlJsonParser.toJsonObject(recordItemCdata)
+                            val recordInfo = innerJson["recordinfo"]?.jsonObject ?: error("未找到 recordinfo")
+                            val datalist = recordInfo["datalist"]?.jsonObject ?: error("未找到 datalist")
+                            val dataItems: List<JsonObject> = when (val elems = datalist["dataitem"]) {
+                                is JsonArray -> elems.map { it.jsonObject }
+                                is JsonObject -> listOf(elems)
+                                else -> emptyList()
+                            }
+                            if (dataItems.isEmpty()) {
+                                error("未找到消息条目")
+                            }
+                            val newRows = dataItems.mapNotNull { item ->
+                                val text = item["datadesc"]?.jsonPrimitive?.contentOrNull?.trim()
+                                    ?: return@mapNotNull null
+                                val sourceName = item["sourcename"]?.jsonPrimitive?.contentOrNull
+                                    ?: return@mapNotNull null
+                                val contact = contacts.firstOrNull { it.nickname == sourceName }
+                                MessageRowState(senderWxId = contact?.wxId, text = text)
+                            }
+                            if (newRows.isEmpty()) {
+                                error("未能解析出有效消息")
+                            }
+                            if (parsedTitle != null) outerTitle = parsedTitle
+                            if (parsedDesc != null) outerDesc = parsedDesc
+                            rows.clear()
+                            rows.addAll(newRows)
+                            showToast(context, "已从剪贴板加载 ${newRows.size} 条消息")
+                        }.onFailure {
+                            showToast(context, "解析失败：${it.message}")
+                            WeLogger.e(nameOf(FabricateChatHistory), "failed to parse messages from clipboard", it)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("从剪贴板加载")
+                }
+
+                Spacer(Modifier.height(12.dp))
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -187,12 +252,33 @@ private fun ChatRecordXmlGeneratorDialog(
                     )
 
                     copyToClipboard(context, xml)
-                    showToast(context, "XML 已复制到剪贴板")
-                    onDismiss()
+                    showToast(context, "已复制")
                 }
-            ) {
-                Text("确定")
-            }
+            ) { Text("复制") }
+            Button(
+                enabled = canGenerate,
+                onClick = {
+                    val xml = buildWeChatRecordXml(
+                        outerTitle = outerTitle,
+                        outerDesc = outerDesc,
+                        rows = rows.map { it.toSnapshot() },
+                        contacts = contacts
+                    )
+                    showComposeDialog(context) {
+                        SingleContactSelector(
+                            title = "选择发送目标",
+                            contacts = contacts,
+                            initialSelectedWxId = null,
+                            onDismiss = this.onDismiss,
+                            onConfirm = { wxId ->
+                                WeMessageApi.sendXmlAppMsg(wxId, xml)
+                                showToast(context, "已发送")
+                                this.onDismiss()
+                            }
+                        )
+                    }
+                }
+            ) { Text("发送") }
         }
     )
 }

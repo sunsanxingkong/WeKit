@@ -13,7 +13,6 @@ public final class SQLiteDatabase {
 
     public void execSQL(@NonNull String statement, @Nullable Object[] args) {
         throw new RuntimeException("Stub!");
-
     }
 
     // returns: changed row count
