@@ -125,7 +125,7 @@ class MessageInfo(val instance: Any) {
         val transferId by lazy { json.getByPath("msg.wcpayinfo.transferid")!!.asString }
 
         // FIXME: payerUsername is empty
-        //        val payerUsername by lazy { json.getByPath("msg.wcpayinfo.payer_username")!!.asString }
+        val payerUsername by lazy { json.getByPath("msg.wcpayinfo.payer_username")!!.asString }
         val invalidTime by lazy { json.getByPath("msg.wcpayinfo.invalidtime")!!.asString.toInt() }
     }
 

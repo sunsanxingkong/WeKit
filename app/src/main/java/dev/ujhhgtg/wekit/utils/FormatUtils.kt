@@ -1,3 +1,5 @@
+@file:Suppress("NOTHING_TO_INLINE")
+
 package dev.ujhhgtg.wekit.utils
 
 import java.time.Instant
@@ -17,7 +19,7 @@ fun formatBytesSize(bytes: Long): String {
     return "%.2f %s".format(value, units[digitGroups])
 }
 
-fun formatEpoch(epochMs: Long, includeDate: Boolean = false): String {
+inline fun formatEpoch(epochMs: Long, includeDate: Boolean = false): String {
     return formatEpoch(epochMs, if (includeDate) "yyyy/MM/dd HH:mm:ss" else "HH:mm:ss")
 }
 

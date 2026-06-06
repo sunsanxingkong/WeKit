@@ -68,6 +68,8 @@ object AutoAcceptTransfers : SwitchHookItem(), IResolvesDex, WeDatabaseListenerA
         val content = values.getAsString("content") ?: return
         val receiver = parseReceiverFromXml(content)
 
+        WeLogger.d(TAG, content)
+
         if (receiver != WeApi.selfWxId) {
             WeLogger.w(TAG, "receiver is not self, ignoring")
             return
@@ -86,12 +88,8 @@ object AutoAcceptTransfers : SwitchHookItem(), IResolvesDex, WeDatabaseListenerA
             return
         }
 
-        val payerUsername = msgInfo.sender
-        // FIXME: payerUsername is empty
-//        if (msg.payerUsername == WeApi.selfWxId) {
-//            WeLogger.w(TAG, "self is payer, ignoring")
-//            return
-//        }
+        val payerUsername = transferMsg.payerUsername.ifEmpty { msgInfo.sender }.ifEmpty { msgInfo.talker }
+
         if (payerUsername == WeApi.selfWxId) {
             WeLogger.w(TAG, "self is payer, ignoring")
             return
@@ -100,8 +98,6 @@ object AutoAcceptTransfers : SwitchHookItem(), IResolvesDex, WeDatabaseListenerA
         val netScene = run {
             val transactionId = transferMsg.transactionId
             val transferId = transferMsg.transferId
-            // FIXME: payerUsername is empty
-//            val payerUser = msg.payerUsername
             val invalidTime = transferMsg.invalidTime
 
             WeLogger.d(TAG, "$transactionId, $transferId, $payerUsername, $invalidTime")

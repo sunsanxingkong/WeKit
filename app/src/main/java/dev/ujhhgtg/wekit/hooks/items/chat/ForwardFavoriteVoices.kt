@@ -67,6 +67,7 @@ object ForwardFavoriteVoices : SwitchHookItem() {
                     confirmButton = {
                         TextButton({
                             copyToClipboard(ctx, voiceFilePath)
+                            showToast(ctx, "已复制")
                         }) { Text("复制") }
                         Button({
                             WeMessageApi.sendVoice(ChatInputBarEnhancements.currentConv, voiceFilePath, AudioUtils.getDurationMs(voiceFilePath).coerceToInt())

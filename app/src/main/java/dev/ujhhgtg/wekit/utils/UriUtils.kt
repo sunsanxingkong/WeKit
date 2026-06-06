@@ -22,7 +22,7 @@ fun Uri.openInSystem(
             Intent(Intent.ACTION_SEND)
                 .setComponent(
                     ComponentName(
-                        context.packageName,
+                        if (HostInfo.isHost) context.packageName else PackageNames.WECHAT,
                         // although this activity is called 'ShareImg',
                         // it is actually used to handle all types
                         "com.tencent.mm.ui.tools.ShareImgUI"
@@ -40,15 +40,13 @@ fun Uri.openInSystem(
             .setDownloadButtonEnabled(true)
             .setColorScheme(CustomTabsIntent.COLOR_SCHEME_SYSTEM)
             .apply {
-                if (PackageNames.isWeChat(context.packageName)) {
-                    val forwardBitmap = ForwardIcon.toBitmap(24.toDp(), 24.toDp())
-                    setActionButton(
-                        forwardBitmap,
-                        "转发",
-                        pendingIntent,
-                        true
-                    )
-                }
+                val forwardBitmap = ForwardIcon.toBitmap(24.toDp(), 24.toDp())
+                setActionButton(
+                    forwardBitmap,
+                    "转发",
+                    pendingIntent,
+                    true
+                )
             }
             .build()
 

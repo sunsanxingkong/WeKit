@@ -1,3 +1,5 @@
+@file:Suppress("NOTHING_TO_INLINE")
+
 package dev.ujhhgtg.wekit.ui.utils
 
 import android.app.Activity
@@ -102,6 +104,9 @@ fun ListAdapter.iterable(parent: ViewGroup): Iterable<View> =
 inline val Activity.rootView: ViewGroup
     get() = findViewById(android.R.id.content)
 
-@Suppress("NOTHING_TO_INLINE")
 inline fun Int.dpToPx(context: Context): Int =
     (this * context.resources.displayMetrics.density).toInt()
+
+val View.idString get() = if (this.id != View.NO_ID) {
+    runCatching { this.resources.getResourceEntryName(this.id) }.getOrDefault(null)
+} else null

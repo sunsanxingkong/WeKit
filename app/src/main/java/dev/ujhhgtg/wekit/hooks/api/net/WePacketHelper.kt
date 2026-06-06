@@ -16,6 +16,7 @@ import dev.ujhhgtg.wekit.hooks.core.ApiHookItem
 import dev.ujhhgtg.wekit.hooks.core.HookItem
 import dev.ujhhgtg.wekit.utils.WeLogger
 import dev.ujhhgtg.wekit.utils.reflection.ClassLoaders
+import dev.ujhhgtg.wekit.utils.reflection.bool
 import dev.ujhhgtg.wekit.utils.reflection.isBuiltin
 import dev.ujhhgtg.wekit.utils.reflection.makeAccessible
 import kotlinx.coroutines.CoroutineScope
@@ -469,11 +470,11 @@ object WePacketHelper : ApiHookItem(), IResolvesDex {
                     if (specificReqCls != null) {
                         finalReqObject = XposedHelpers.newInstance(specificReqCls)
                         XposedHelpers.callMethod(finalReqObject, "parseFrom", bytes)
-                        WeLogger.i(TAG, "[$cgiId] 使用业务特定类: ${specificReqCls.name}")
+                        WeLogger.i(TAG, "[$cgiId] using specific class: ${specificReqCls.name}")
                     } else {
                         val rawCls = classRawReq.clazz
                         finalReqObject = XposedHelpers.newInstance(rawCls, bytes)
-                        WeLogger.i(TAG, "[$cgiId] 使用通用原始类: ${rawCls.name}")
+                        WeLogger.i(TAG, "[$cgiId] using generic class: ${rawCls.name}")
                     }
 
                     val builder = classConfigBuilder.clazz.createInstance()
@@ -503,15 +504,15 @@ object WePacketHelper : ApiHookItem(), IResolvesDex {
                         "d",
                         classReqResp.clazz,
                         classCallbackIface.clazz,
-                        Boolean::class.javaPrimitiveType
+                        bool
                     )
 
-                    WeLogger.i(TAG, "[$cgiId] 通用发送中...")
+                    WeLogger.i(TAG, "[$cgiId] sending cgi...")
                     methodD.invoke(null, rr, cbProxy, false)
                 }
 
             } catch (e: Throwable) {
-                WeLogger.e(TAG, "[$cgiId] 引擎异常", e)
+                WeLogger.e(TAG, "[$cgiId] failed to send cgi", e)
                 Handler(Looper.getMainLooper()).post { callback?.onFailure(-1, -1, e.message ?: "") }
             }
         }

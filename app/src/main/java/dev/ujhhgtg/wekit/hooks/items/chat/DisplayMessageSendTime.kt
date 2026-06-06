@@ -2,8 +2,10 @@ package dev.ujhhgtg.wekit.hooks.items.chat
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.View
-import android.view.ViewGroup
+import android.widget.RelativeLayout
 import android.widget.TextView
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -22,6 +24,7 @@ import dev.ujhhgtg.wekit.ui.content.TextButton
 import dev.ujhhgtg.wekit.ui.utils.showComposeDialog
 import dev.ujhhgtg.wekit.utils.formatEpoch
 import dev.ujhhgtg.wekit.utils.reflection.asResolver
+import java.lang.reflect.Field
 
 
 @HookItem(path = "聊天/显示消息时间", description = "显示精确消息发送时间")
@@ -36,12 +39,14 @@ object DisplayMessageSendTime : ClickableHookItem(),
         WeChatMessageViewApi.removeListener(this)
     }
 
+    private lateinit var avatarField: Field
+
     @SuppressLint("SetTextI18n")
     override fun onCreateView(
         param: XC_MethodHook.MethodHookParam,
         view: View
     ) {
-        val tag = view.tag
+        val tag = view.tag ?: return
         val msgInfo = WeChatMessageViewApi.getMsgInfoFromParam(param)
         val text = formatEpoch(msgInfo.createTime, pattern)
 
@@ -54,8 +59,77 @@ object DisplayMessageSendTime : ClickableHookItem(),
 
         time.visibility = View.VISIBLE
         time.text = text
-        val parent = time.parent as ViewGroup
-        parent.textAlignment = TextView.TEXT_ALIGNMENT_VIEW_END
+        time.setTextColor(android.graphics.Color.GRAY)
+
+        val context = time.context
+
+        // 1. Convert 16dp to pixels dynamically so it matches standard screen-edge spacing
+        val edgeMarginPx = TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP,
+            16f,
+            context.resources.displayMetrics
+        ).toInt()
+
+        // 2. Make the paddings above and below the time smaller (2dp)
+        val verticalPaddingPx = TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP,
+            2f,
+            context.resources.displayMetrics
+        ).toInt()
+        time.setPadding(time.paddingLeft, verticalPaddingPx, time.paddingRight, verticalPaddingPx)
+
+        val lp = time.layoutParams as? RelativeLayout.LayoutParams
+        if (lp != null) {
+            // Always remove WeChat's default horizontal centering rule
+            lp.removeRule(RelativeLayout.CENTER_HORIZONTAL)
+
+            // 3. Conditional alignment based on who sent the message
+            if (msgInfo.isSelfSender) {
+                // Align to the Right (End)
+                lp.removeRule(RelativeLayout.ALIGN_PARENT_START)
+                lp.addRule(RelativeLayout.ALIGN_PARENT_END)
+
+                lp.marginEnd = edgeMarginPx
+                lp.marginStart = 0 // Clear opposing margin to prevent bugs on view recycling
+
+                time.gravity = Gravity.END
+            } else {
+                // Align to the Left (Start)
+                lp.removeRule(RelativeLayout.ALIGN_PARENT_END)
+                lp.addRule(RelativeLayout.ALIGN_PARENT_START)
+
+                // Resolve avatar to check if it's currently hidden
+                if (!::avatarField.isInitialized) {
+                    avatarField = tag.asResolver()
+                        .firstField { name = "avatarIV"; superclass() }.self
+                }
+                val avatar = avatarField.get(tag) as View?
+                val avatarContainer = avatar?.parent as? View ?: avatar
+
+                if (avatarContainer != null && avatarContainer.visibility != View.VISIBLE) {
+                    // If the avatar is hidden, shift the timestamp right to align under the bubble.
+                    // Uses measured width if available; otherwise falls back to 52dp (40dp avatar + 12dp spacing).
+                    val avatarWidthPx = if (avatarContainer.width > 0) {
+                        avatarContainer.width
+                    } else {
+                        TypedValue.applyDimension(
+                            TypedValue.COMPLEX_UNIT_DIP,
+                            52f,
+                            context.resources.displayMetrics
+                        ).toInt()
+                    }
+                    lp.marginStart = edgeMarginPx + avatarWidthPx
+                } else {
+                    // Default edge spacing when avatar is visible
+                    lp.marginStart = edgeMarginPx
+                }
+
+                lp.marginEnd = 0 // Clear opposing margin to prevent bugs on view recycling
+                time.gravity = Gravity.START
+            }
+
+            time.layoutParams = lp
+        }
     }
 
     private var pattern by prefOption("msg_time_pattern", "yyyy/MM/dd HH:mm:ss")

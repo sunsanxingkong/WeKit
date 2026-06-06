@@ -277,8 +277,6 @@ object HideContacts : ClickableHookItem(), IResolvesDex {
                 }.let { "SELECT * FROM ($it) AS a WHERE aux_index NOT IN ($hideValueText);" }
 
                 args[1] = newSql
-
-                WeLogger.d(TAG, "replaced '$sql' with '$newSql'")
             }
         }
     }
