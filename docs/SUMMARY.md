@@ -4,11 +4,12 @@
 * [🚀 快速开始](getting-started.md)
 * [📥 安装指南](installation.md)
 * [⚙️ 配置指南](configuration.md)
-* [模块设置说明](module-settings.md)
+* [🔧 模块设置说明](module-settings.md)
+* [🛠 开发指南](development.md)
 * [❓ 常见问题](faq.md)
 * [🐛 问题反馈指南](bug-report-guide.md)
 * [⭐ 建议反馈指南](feature-request-guide.md)
-* [免责声明](cosmic-level-disclaimer.md)
+* [🛡 免责声明](cosmic-level-disclaimer.md)
 
 ## 功能文档
 
@@ -147,8 +148,8 @@
 
 ### 视频号
 
-* [下载媒体](features/shortvideos/download-media.md)
 * [禁用评论长度限制](features/shortvideos/disable-comment-size-limit.md)
+* [下载媒体](features/shortvideos/download-media.md)
 
 ### 个人资料
 
@@ -158,25 +159,25 @@
 
 ### 脚本引擎
 
+* [脚本引擎 API 参考](features/scripting_js/js-api-reference.md)
 * [脚本引擎](features/scripting_js/js-scripting-hook.md)
 * [触发器: 收到消息](features/scripting_js/on-message.md)
 * [触发器: 发起请求](features/scripting_js/on-request.md)
 * [触发器: 收到响应](features/scripting_js/on-response.md)
-* [脚本引擎 API 参考](features/scripting_js/js-api-reference.md)
 
 ### 调试
 
 * [复制调试信息](features/debug/copy-wechat-debug-info.md)
 * [崩溃拦截](features/debug/crash-interceptor.md)
-* [崩溃拦截 (Native)](features/debug/native-crash-interceptor.md)
 * [崩溃日志查看器](features/debug/crash-logs-viewer.md)
+* [测试](features/debug/experiments.md)
 * [启动微信内部 URL](features/debug/launch-internal-urls.md)
+* [崩溃拦截 (Native)](features/debug/native-crash-interceptor.md)
 * [内存分析](features/debug/profile-memory.md)
 * [重定向微信日志](features/debug/redirect-host-logs.md)
 * [重置适配信息](features/debug/reset-dex-cache.md)
 * [发包调试](features/debug/send-packet.md)
 * [测试崩溃](features/debug/trigger-crash.md)
-* [测试](features/debug/experiments.md)
 
 ### 娱乐
 
