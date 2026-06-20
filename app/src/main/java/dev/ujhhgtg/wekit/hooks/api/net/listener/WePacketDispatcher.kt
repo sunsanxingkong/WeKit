@@ -118,7 +118,6 @@ object WePacketDispatcher : ApiHookItem(), IResolveDex {
                                         } catch (_: NoSuchFieldError) {
                                             XposedHelpers.callMethod(respV0, "getRespObj")
                                         }
-                                        WeLogger.d(TAG, respWrapper.javaClass.name)
 
                                         if (respWrapper != null) {
                                             val respPbObj = try {
@@ -154,7 +153,7 @@ object WePacketDispatcher : ApiHookItem(), IResolveDex {
                                         }
                                     }
                                 } catch (t: Throwable) {
-                                    WeLogger.e(TAG, "Tamper inner logic fail", t)
+                                    WeLogger.e(TAG, "failed to tamper inner logic", t)
                                 }
                             }
                         }

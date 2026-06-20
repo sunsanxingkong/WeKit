@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import android.view.animation.Interpolator
 import android.widget.FrameLayout
 import de.robv.android.xposed.XC_MethodHook
+import dev.ujhhgtg.reflekt.reflekt
 import dev.ujhhgtg.wekit.dexkit.abc.IResolveDex
 import dev.ujhhgtg.wekit.dexkit.dsl.dexClass
 import dev.ujhhgtg.wekit.dexkit.dsl.dexMethod
@@ -16,8 +17,6 @@ import dev.ujhhgtg.wekit.hooks.api.ui.WeChatMessageViewApi
 import dev.ujhhgtg.wekit.hooks.core.HookItem
 import dev.ujhhgtg.wekit.hooks.core.SwitchHookItem
 import dev.ujhhgtg.wekit.ui.utils.dpToPx
-import dev.ujhhgtg.reflekt.reflekt
-import org.luckypray.dexkit.DexKitBridge
 import java.util.Collections
 import java.util.WeakHashMap
 import kotlin.math.PI
@@ -126,7 +125,7 @@ object SwipeToQuote : SwitchHookItem(), IResolveDex,
 
     override fun onDisable() {
         WeChatMessageViewApi.removeListener(this)
-        states.clear() // hooks still exist but map is empty → zero work per event
+        states.clear()
     }
 
     // ── ICreateViewListener ──────────────────────────────────────────────────
@@ -144,7 +143,7 @@ object SwipeToQuote : SwitchHookItem(), IResolveDex,
 
     private class SpringInterpolator : Interpolator {
         override fun getInterpolation(t: Float): Float =
-            (1f - (cos(t * PI * 2.5) * exp(-t * 5f))).toFloat()
+            (1f - cos(t * PI * 2.5) * exp(-t * 5f)).toFloat()
     }
 
     private fun onSwipeLeft(originalView: View, chattingContext: Any) {
@@ -167,23 +166,17 @@ object SwipeToQuote : SwitchHookItem(), IResolveDex,
         else quoteMethod.invoke(chatFooter, msgInfo, null)
     }
 
-    private val classChattingUiFootComponent by dexClass()
-    private val methodGetMsgInfo by dexMethod()
-
-    override fun resolveDex(dexKit: DexKitBridge) {
-        classChattingUiFootComponent.find(dexKit) {
-            searchPackages("com.tencent.mm.ui.chatting.component")
-            matcher {
-                usingEqStrings(
-                    "MicroMsg.ChattingUI.FootComponent",
-                    "onNotifyChange event %s talker %s"
-                )
-            }
+    private val classChattingUiFootComponent by dexClass {
+        searchPackages("com.tencent.mm.ui.chatting.component")
+        matcher {
+            usingEqStrings(
+                "MicroMsg.ChattingUI.FootComponent",
+                "onNotifyChange event %s talker %s"
+            )
         }
-
-        methodGetMsgInfo.find(dexKit) {
-            searchPackages("com.tencent.mm.ui.chatting.viewitems")
-            matcher { usingEqStrings("ItemDataTag", "getCurrentMsg2 err") }
-        }
+    }
+    private val methodGetMsgInfo by dexMethod {
+        searchPackages("com.tencent.mm.ui.chatting.viewitems")
+        matcher { usingEqStrings("ItemDataTag", "getCurrentMsg2 err") }
     }
 }

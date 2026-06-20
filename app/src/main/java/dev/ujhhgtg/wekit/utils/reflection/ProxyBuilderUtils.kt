@@ -9,14 +9,17 @@ import java.lang.reflect.InvocationHandler
 import kotlin.io.path.div
 
 fun <T : Any> createProxyBuilder(
+    classLoader: ClassLoader,
     baseClass: Class<T>,
     constructorArgs: Array<Class<*>>,
-    handler: InvocationHandler
+    handler: InvocationHandler,
+    interfaces: Array<Class<*>>,
 ): ProxyBuilder<T> {
     return ProxyBuilder.forClass(baseClass)
         .dexCache((KnownPaths.moduleData / "generated_proxy_classes").createDirectoriesNoThrow().toFile())
-        .parentClassLoader(ClassLoaders.HOST)
+        .parentClassLoader(classLoader)
         .constructorArgTypes(*constructorArgs)
+        .implementing(*interfaces)
         .handler(handler)
 }
 

@@ -126,7 +126,7 @@ class MainSettingsScreen : BasePrefsScreen(BuildConfig.TAG) {
             addPreference(
                 title = name, icon = icon,
                 onClick = {
-                    CategorySettingsScreen(it, name).show(it)
+                    CategorySettingsScreen(name).show(it)
                 }
             )
         }

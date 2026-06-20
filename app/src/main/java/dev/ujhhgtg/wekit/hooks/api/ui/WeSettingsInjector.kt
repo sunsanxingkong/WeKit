@@ -6,8 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
-import com.android.dx.stock.ProxyBuilder
-import com.tencent.mm.plugin.setting.ui.setting_new.MainSettingsUI
 import com.tencent.mm.plugin.setting.ui.setting_new.base.BaseSettingPrefUI
 import com.tencent.mm.plugin.setting.ui.setting_new.base.BaseSettingUI
 import com.tencent.mm.plugin.setting.ui.setting_new.settings.SettingAdditionHeaderSearch
@@ -20,8 +18,7 @@ import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedHelpers
 import dev.ujhhgtg.comptime.This
 import dev.ujhhgtg.reflekt.reflekt
-import dev.ujhhgtg.reflekt.utils.createInstance
-import dev.ujhhgtg.reflekt.utils.toClass
+import dev.ujhhgtg.reflekt.utils.isBuiltin
 import dev.ujhhgtg.reflekt.utils.toClassOrNull
 import dev.ujhhgtg.wekit.BuildConfig
 import dev.ujhhgtg.wekit.constants.PackageNames
@@ -31,16 +28,16 @@ import dev.ujhhgtg.wekit.dexkit.dsl.dexClass
 import dev.ujhhgtg.wekit.dexkit.dsl.dexMethod
 import dev.ujhhgtg.wekit.hooks.core.ApiHookItem
 import dev.ujhhgtg.wekit.hooks.core.HookItem
+import dev.ujhhgtg.wekit.preferences.WePrefs
+import dev.ujhhgtg.wekit.ui.content.CategorySettingsScreen
 import dev.ujhhgtg.wekit.ui.content.MainSettingsScreen
 import dev.ujhhgtg.wekit.ui.utils.ExtensionIcon
 import dev.ujhhgtg.wekit.utils.WeLogger
-import dev.ujhhgtg.wekit.utils.hookBeforeDirectly
-import dev.ujhhgtg.wekit.utils.reflection.buildClass
-import dev.ujhhgtg.wekit.utils.reflection.createProxyBuilder
+import dev.ujhhgtg.wekit.utils.android.Intent
+import dev.ujhhgtg.wekit.utils.reflection.bool
 import dev.ujhhgtg.wekit.utils.reflection.int
 import org.luckypray.dexkit.DexKitBridge
 import org.luckypray.dexkit.query.enums.StringMatchType
-import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Modifier
 
 @HookItem(name = "设置模块入口", categories = ["API"])
@@ -75,6 +72,26 @@ object WeSettingsInjector : ApiHookItem(), IResolveDex, WeHomeScreenPopupMenuApi
             }
         }
     }
+    private val classBaseSettingSwitchItem by dexClass(allowFailure = true) {
+        matcher {
+            usingEqStrings("activity", "context", "itemView", "1", "0")
+
+            addMethod {
+                returnType = "int"
+                usingNumbers(2)
+            }
+
+            addMethod {
+                name = "<init>"
+                paramTypes("androidx.appcompat.app.AppCompatActivity")
+                usingNumbers(1)
+            }
+
+            superClass {
+                usingEqStrings("activity")
+            }
+        }
+    }
     private val classSettingLocation by dexClass(allowFailure = true) {
         matcher {
             usingEqStrings("SettingLocation(parentGroup=", ", frontItem=")
@@ -103,6 +120,39 @@ object WeSettingsInjector : ApiHookItem(), IResolveDex, WeHomeScreenPopupMenuApi
     private val methodResourceHelperGetStringById by dexMethod(allowFailure = true) {
         matcher {
             usingEqStrings("MicroMsg.ResourceHelper", "get string, resId %d, but context is null")
+        }
+    }
+    private val methodPluginHelperLaunchIntent by dexMethod(allowFailure = true) {
+        matcher {
+            usingEqStrings("MicroMsg.PluginHelper", "start activity, need try load plugin[%B], entry:%s", "start activity error, context is null")
+        }
+    }
+    // FIXME: using multipleIndex here, might find the wrong class
+    private val classIntentAction by dexClass(allowFailure = true, allowMultiple = true, multipleIndex = 1) {
+        searchPackages("com.tencent.mm.plugin.setting.ui.setting_new.uic")
+        matcher {
+            addMethod {
+                name = "<init>"
+                usingEqStrings("activity")
+            }
+
+            addMethod {
+                name = "onCreate"
+            }
+
+            addMethod {
+                name = "onDestroy"
+            }
+
+            addMethod {
+                name = "onResume"
+            }
+
+            superClass {
+                superClass {
+                    className = "com.tencent.mm.ui.component.UIComponent"
+                }
+            }
         }
     }
 
@@ -264,21 +314,15 @@ object WeSettingsInjector : ApiHookItem(), IResolveDex, WeHomeScreenPopupMenuApi
 //        }
 //    }
 
-    const val WEKIT_SETTING_ITEM_NAME_RES_ID = -1337
-
-    private val PAGE_GROUP_SETTING_ITEM_CLASS by lazy { SettingGroupMain::class.java }
-
-    // or SettingGroupPrivacyPermission & SettingGroupNotify
-    private val PARENT_SETTING_ITEM_CLASS by lazy { SettingAdditionHeaderSearch::class.java }
-    private val CHILD_SETTING_ITEM_CLASS by lazy { SettingGroupPersonalInfo::class.java }
-
     private lateinit var mGetPageGroupItemClass: String
-    private lateinit var mReturns1: String
+    private lateinit var mGetLevel: String
     private lateinit var mOnClick: String
-    private lateinit var mGetStringId: String
+    private lateinit var mGetKey: String
     private lateinit var mGetSettingLocation: String
     private lateinit var mGetNameResId: String
     private lateinit var mGetGroupNameResId: String
+    private lateinit var mGetSwitchState: String
+    private lateinit var mGetSwitchProperty: String
 
     private fun resolveMethodNames() {
         if (::mGetPageGroupItemClass.isInitialized) return
@@ -286,9 +330,9 @@ object WeSettingsInjector : ApiHookItem(), IResolveDex, WeHomeScreenPopupMenuApi
         // this is only used for resolving method names, so we'll hard-code SettingGroupAccountInfo
         SettingGroupAccountInfo::class.java.declaredMethods.run {
             mGetPageGroupItemClass = first { m -> m.returnType == Class::class.java }.name
-            mReturns1 = methodSettingGroupAccountInfoReturns1.method.name
+            mGetLevel = methodSettingGroupAccountInfoReturns1.method.name
             mOnClick = first { m -> m.parameterCount == 3 }.name
-            mGetStringId = methodSettingGroupAccountInfoGetStringId.method.name
+            mGetKey = methodSettingGroupAccountInfoGetStringId.method.name
             mGetSettingLocation =
                 last { m -> m.returnType == classSettingLocation.clazz }.name
             mGetNameResId =
@@ -297,50 +341,25 @@ object WeSettingsInjector : ApiHookItem(), IResolveDex, WeHomeScreenPopupMenuApi
                             m.name != methodSettingGroupAccountInfoReturns1.method.name
                 }.name
             mGetGroupNameResId = methodSettingGroupPersonalInfoGetGroupNameResId.method.name
+            mGetSwitchState = classBaseSettingSwitchItem.reflekt().firstMethod {
+                modifiers { it.contains(Modifier.ABSTRACT) }
+                returnType = bool
+            }.name
+            mGetSwitchProperty = classBaseSettingSwitchItem.reflekt().firstMethod {
+                modifiers { it.contains(Modifier.ABSTRACT) }
+                returnType { !it.isBuiltin }
+            }.name
 
-            // non-play 8.0.69: C6, K6, Q6, w6, x6, z6, u6
+            // non-play 8.0.69: C6, K6, Q6, w6, x6, z6, u6, W6, V6
             // non-play 8.0.70: k7, r7, w7, g7, h7, j7, ...
             // non-play 8.0.71: p7, w7, B7, l7, m7, o7, ...
             // play 8.0.69 (3022): E6, N6, U6, A6, B6, D6, ...
             WeLogger.d(
                 TAG,
-                "resolved all method names: $mGetPageGroupItemClass, $mReturns1, $mOnClick, $mGetStringId, $mGetSettingLocation, $mGetNameResId, $mGetGroupNameResId"
+                "resolved all method names: $mGetPageGroupItemClass, $mGetLevel, $mOnClick, $mGetKey, $mGetSettingLocation, $mGetNameResId, $mGetGroupNameResId, " +
+                        "$mGetSwitchState, $mGetSwitchProperty"
             )
         }
-    }
-
-    @Suppress("FunctionName", "NOTHING_TO_INLINE")
-    private inline fun SettingLocation(pageGroupClass: Class<*>, parentClass: Class<*>) = classSettingLocation.clazz.createInstance(pageGroupClass, parentClass)
-
-    private val customSettingItemClass by lazy {
-        resolveMethodNames()
-
-        val handler = InvocationHandler { proxy, method, args ->
-            when (method.name) {
-                mGetPageGroupItemClass -> PAGE_GROUP_SETTING_ITEM_CLASS
-                mReturns1 -> 1
-                mOnClick -> openSettingsDialog(args[0] as Activity)
-                mGetStringId -> "SettingGroup_Main_Other_WeKit"
-                mGetSettingLocation -> SettingLocation(
-                    PAGE_GROUP_SETTING_ITEM_CLASS,
-                    PARENT_SETTING_ITEM_CLASS
-                )
-                mGetNameResId -> WEKIT_SETTING_ITEM_NAME_RES_ID
-                mGetGroupNameResId -> WEKIT_SETTING_ITEM_NAME_RES_ID
-
-                else -> ProxyBuilder.callSuper(
-                    proxy,
-                    method,
-                    *args
-                )
-            }
-        }
-
-        createProxyBuilder(
-            classBaseSettingItem.clazz,
-            arrayOf("androidx.appcompat.app.AppCompatActivity".toClass()),
-            handler
-        ).buildClass(handler)
     }
 
     private fun injectModernMethod2() {
@@ -350,72 +369,151 @@ object WeSettingsInjector : ApiHookItem(), IResolveDex, WeHomeScreenPopupMenuApi
                 return
             }
 
-        // for name
-        var contextGetStringUnhook: XC_MethodHook.Unhook? = null
-        // for group name; we can also hook usingEqStrings("MicroMsg.ResourceHelper", "get string, resId %d, but context is null")
-        var resourcesGetStringUnhook: XC_MethodHook.Unhook? = null
+        resolveMethodNames()
 
-        // create dependency chain
-        CHILD_SETTING_ITEM_CLASS.reflekt()
-            .firstMethod {
-                returnType = classSettingLocation.clazz
+        val settingsManager = WeChatSettingsManager(
+            classBaseSettingItem.clazz, classBaseSettingSwitchItem.clazz, classSettingLocation.clazz, classSettingItemClassesProvider.clazz,
+            BaseSettingPrefUI::class.java, BaseSettingUI::class.java, methodResourceHelperGetStringById.method,
+            mGetPageGroupItemClass, mGetLevel, mOnClick, mGetKey, mGetSettingLocation, mGetNameResId, mGetGroupNameResId, mGetSwitchState, mGetSwitchProperty
+        )
+
+        val item1 = settingsManager.createItem {
+            key = "SettingGroup_Main_WeKitTest1"
+            title = "WeKit 设置"
+            level = 1
+            groupTitle = "插件"
+            pageClass = SettingGroupMain::class.java
+            parentClass = SettingAdditionHeaderSearch::class.java
+            onClick = { openSettingsDialog(it) }
+        }
+
+        val item2 = settingsManager.createItem {
+            key = "SettingGroup_Main_WeKitTest2"
+            title = "测试 - WeKit 设置"
+            level = 1
+            pageClass = SettingGroupMain::class.java
+            parentClass = item1
+            onClick = { openSettingsDialog(it) }
+        }
+
+        val item3 = settingsManager.createItem {
+            key = "SettingGroup_Main_WeKitTest3"
+            title = "测试 2 - WeKit 设置 - 详细日志"
+            level = 1
+            isSwitch = true
+            pageClass = SettingGroupMain::class.java
+            parentClass = item2
+
+            switchState = { Preferences.verboseLog }
+            onSwitchChanged = { Preferences.verboseLog = it }
+        }
+
+        // --- doesn't work ---
+        val group = settingsManager.createItem {
+            key = "SettingGroup_Main_WeKit"
+            title = "测试 3 - WeKit 设置 - 原生"
+//            groupTitle = "测试"
+            level = 1
+            pageClass = SettingGroupMain::class.java
+            parentClass = item3
+
+            onClick = {
+                val subPageIntent = Intent {
+                    putExtra("key_config_item", "SettingGroup_Main_WeKit")
+                    putExtra("page_name_kv", "SettingGroup_Main_WeKit")
+                    putExtra("ui_version", 2)
+                    putExtra("setting_from_source", it.intent.getIntExtra("setting_from_source", 2))
+                    putExtra("setting_level", 2)
+                    putExtra("setting_page_time", System.currentTimeMillis().toString())
+                    putStringArrayListExtra("key_intent_action_uic_list", arrayListOf(classIntentAction.clazz.name))
+//                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+
+                methodPluginHelperLaunchIntent.method.invoke(null,
+                    it, "setting", ".ui.setting_new.CommonSettingsUI", subPageIntent, true, null)
             }
-            .hookBefore {
-                result = SettingLocation(
-                    PAGE_GROUP_SETTING_ITEM_CLASS,
-                    customSettingItemClass
-                )
-            }
+        }
 
-        // inject into all SettingItem::class map in order to be discovered
-        classSettingItemClassesProvider.reflekt().firstMethod()
-            .hookAfter {
-                val map = result as? Map<*, *>? ?: return@hookAfter
-                val originalSet = map.values.first() as LinkedHashSet<*>
-                result = mapOf(map.keys.first() to originalSet + customSettingItemClass)
-            }
+//        val newPagePageClass = SettingGroupMain::class.java
+        val newPagePageClass = group
 
-        // inject into page
-        BaseSettingPrefUI::class.reflekt()
-            .firstMethod { name = "superImportUIComponents" }
-            .hookAfter {
-                if (thisObject !is MainSettingsUI) return@hookAfter
+        val newPageItem1 = settingsManager.createItem {
+            key = "SettingGroup_Main_WeKit_Test1"
+            title = "聊天"
+            groupTitle = "功能"
+            level = 2
+            pageClass = newPagePageClass
+            parentClass = null
 
-                // a simple way to inject string resource
-                contextGetStringUnhook = Context::class.reflekt()
-                    .firstMethod {
-                        name = "getString"
-                        parameters(Int::class)
-                    }
-                    .hookBeforeDirectly {
-                        val resId = args[0] as Int
-                        if (resId == WEKIT_SETTING_ITEM_NAME_RES_ID)
-                            result = "${BuildConfig.TAG} 设置"
-                    }
+            onClick = { CategorySettingsScreen("聊天").show(it) }
+        }
 
-                resourcesGetStringUnhook = methodResourceHelperGetStringById.method
-                    .hookBeforeDirectly {
-                        val resId = args[1] as Int
-                        if (resId == WEKIT_SETTING_ITEM_NAME_RES_ID)
-                            result = "模块"
-                    }
+        val newPageItem2 = settingsManager.createItem {
+            key = "SettingGroup_Main_WeKit_Test2"
+            title = "联系人与群组"
+            level = 2
+            pageClass = newPagePageClass
+            parentClass = newPageItem1
 
-                @Suppress("UNCHECKED_CAST")
-                val settingItemClasses = args[0] as HashSet<Class<*>>
-                settingItemClasses.add(customSettingItemClass)
-            }
+            onClick = { CategorySettingsScreen("联系人与群组").show(it) }
+        }
 
-        BaseSettingUI::class.reflekt()
-            .firstMethod { name = "onDestroy" }
-            .hookAfter {
-                if (thisObject !is MainSettingsUI) return@hookAfter
+        val newPageItem3 = settingsManager.createItem {
+            key = "SettingGroup_Main_WeKit_Test3"
+            title = "红包与支付"
+            level = 2
+            pageClass = newPagePageClass
+            parentClass = newPageItem2
 
-                contextGetStringUnhook!!.unhook()
-                contextGetStringUnhook = null
+            onClick = { CategorySettingsScreen("红包与支付").show(it) }
+        }
+        // --- end doesn't work ---
 
-                resourcesGetStringUnhook!!.unhook()
-                contextGetStringUnhook = null
-            }
+        val item4 = settingsManager.createItem {
+            key = "SettingGroup_Main_WeKitTest4"
+            title = "聊天"
+            groupTitle = "插件 - 功能"
+            level = 1
+            pageClass = SettingGroupMain::class.java
+            parentClass = group
+
+            onClick = { CategorySettingsScreen("聊天").show(it) }
+        }
+
+        val item5 = settingsManager.createItem {
+            key = "SettingGroup_Main_WeKitTest5"
+            title = "聊天 - 阻止消息撤回 3"
+            level = 1
+            isSwitch = true
+            pageClass = SettingGroupMain::class.java
+            parentClass = item4
+
+            switchState = { WePrefs.getBoolOrFalse("阻止消息撤回 3") }
+            onSwitchChanged = { WePrefs.putBool("阻止消息撤回 3", it) }
+        }
+
+        val item6 = settingsManager.createItem {
+            key = "SettingGroup_Main_WeKitTest6"
+            title = "联系人与群组"
+            level = 1
+            pageClass = SettingGroupMain::class.java
+            parentClass = item5
+
+            onClick = { CategorySettingsScreen("联系人与群组").show(it) }
+        }
+
+        val item7 = settingsManager.createItem {
+            key = "SettingGroup_Main_WeKitTest7"
+            title = "红包与支付"
+            level = 1
+            pageClass = SettingGroupMain::class.java
+            parentClass = item6
+            childClass = SettingGroupPersonalInfo::class.java
+
+            onClick = { CategorySettingsScreen("红包与支付").show(it) }
+        }
+
+        settingsManager.install()
     }
 
     private fun injectHomeScreenMenu() {

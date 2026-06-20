@@ -1,6 +1,5 @@
 package dev.ujhhgtg.wekit.ui.content
 
-import android.content.Context
 import dev.ujhhgtg.comptime.nameOf
 import dev.ujhhgtg.wekit.hooks.core.BaseHookItem
 import dev.ujhhgtg.wekit.hooks.core.ClickableHookItem
@@ -9,10 +8,7 @@ import dev.ujhhgtg.wekit.hooks.core.SwitchHookItem
 import dev.ujhhgtg.wekit.preferences.WePrefs
 import dev.ujhhgtg.wekit.utils.WeLogger
 
-class CategorySettingsScreen(
-    private val context: Context,
-    private val categoryName: String,
-) : BasePrefsScreen(categoryName) {
+class CategorySettingsScreen(private val categoryName: String) : BasePrefsScreen(categoryName) {
 
     override fun initPreferences() {
         val targetItems = HookItemsProvider.ALL_HOOK_ITEMS.filter { item ->

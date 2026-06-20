@@ -86,6 +86,7 @@ class DexClassDelegate internal constructor(
         dexKit: DexKitBridge,
         allowMultiple: Boolean = false,
         allowFailure: Boolean = false,
+        multipleIndex: Int = 0,
         block: FindClass.() -> Unit
     ): Boolean {
         val results = dexKit.findClass(block)
@@ -96,9 +97,11 @@ class DexClassDelegate internal constructor(
             return false
         }
         if (results.size > 1 && !allowMultiple)
-            error("DexKit: Multiple classes found for key: $key, count: ${results.size}")
+            error("DexKit: Multiple classes found for key: $key, count: ${results.size}, classes: ${
+                results.joinToString(",") { it.name }
+            }")
 
-        setDescriptor(results[0].name)
+        setDescriptor(results[multipleIndex].name)
         return true
     }
 
@@ -348,12 +351,13 @@ fun dexConstructor(
 fun dexClass(
     allowMultiple: Boolean = false,
     allowFailure: Boolean = false,
+    multipleIndex: Int = 0,
     block: FindClass.() -> Unit
 ): PropertyDelegateProvider<BaseHookItem, ReadOnlyProperty<BaseHookItem, DexClassDelegate>> =
     PropertyDelegateProvider { item, property ->
         val key = "${item::class.simpleName}:${property.name}"
         DexClassDelegate(key) { delegate, dexKit ->
-            delegate.find(dexKit, allowMultiple, allowFailure, block)
+            delegate.find(dexKit, allowMultiple, allowFailure, multipleIndex, block)
         }.also { item.registerDexDelegate(it) }
     }
 
