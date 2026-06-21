@@ -32,7 +32,7 @@ import dev.ujhhgtg.wekit.hooks.api.core.models.IWeContact
 import dev.ujhhgtg.wekit.hooks.api.ui.WeStartActivityApi
 import dev.ujhhgtg.wekit.hooks.core.ClickableHookItem
 import dev.ujhhgtg.wekit.hooks.core.HookItem
-import dev.ujhhgtg.wekit.preferences.WePrefs
+import dev.ujhhgtg.wekit.preferences.WePrefs.Companion.prefOption
 import dev.ujhhgtg.wekit.ui.content.AlertDialogContent
 import dev.ujhhgtg.wekit.ui.content.Button
 import dev.ujhhgtg.wekit.ui.content.ContactsSelector
@@ -53,7 +53,7 @@ object AggregateChats : ClickableHookItem(),
 
     private val TAG = This.Class.simpleName
     private const val FOLDER_PREFIX = "wekit_fold_"
-    private const val KEY_FOLDERS = "virtual_chat_folders"
+    private var folders by prefOption("chat_folders", "[]")
     private const val CONTAINER_ACTIVITY_FALLBACK = "com.tencent.mm.ui.conversation.ConvBoxServiceConversationUI"
 
     private val classMainUi by dexClass()
@@ -225,7 +225,7 @@ object AggregateChats : ClickableHookItem(),
         methodSqliteWrapperRawQuery.find(dexKit, allowFailure = true) {
             matcher {
                 modifiers = JavaModifier.PUBLIC
-                usingStrings("sql is null ")
+                usingEqStrings("sql is null ", "DB IS CLOSED ! {%s}")
                 paramTypes("java.lang.String", "java.lang.String[]", "int")
                 returnType("android.database.Cursor")
             }
@@ -368,10 +368,9 @@ object AggregateChats : ClickableHookItem(),
                 clearStaleFolderMappings()
                 folders.forEach { syncFolder(it) }
             }
-//            WeConversationApi.reloadConversationList()
-            WeLogger.i(TAG, "synced ${folders.size} virtual chat folders")
+            WeLogger.i(TAG, "synced ${folders.size} folders")
         }.onFailure {
-            WeLogger.e(TAG, "failed to sync virtual chat folders", it)
+            WeLogger.e(TAG, "failed to sync folders", it)
         }
     }
 
@@ -407,7 +406,7 @@ object AggregateChats : ClickableHookItem(),
         }
     }
 
-    private fun syncFolder(folder: VirtualFolder) {
+    private fun syncFolder(folder: ChatFolder) {
         val members = folder.members.filterNot(::isFolderId).distinct()
         if (members.isNotEmpty()) {
             ensureMemberConversationRows(folder.id, members)
@@ -536,7 +535,7 @@ object AggregateChats : ClickableHookItem(),
             if (missingConversationColumns.isNotEmpty() || missingContactColumns.isNotEmpty()) {
                 WeLogger.w(
                     TAG,
-                    "skip virtual folder sync, schema mismatch: " +
+                    "skip folders sync, schema mismatch: " +
                             "rconversation missing=${missingConversationColumns.joinToString()}, " +
                             "rcontact missing=${missingContactColumns.joinToString()}"
                 )
@@ -545,7 +544,7 @@ object AggregateChats : ClickableHookItem(),
                 true
             }
         }.onFailure {
-            WeLogger.w(TAG, "skip virtual folder sync, failed to inspect WeChat database schema", it)
+            WeLogger.w(TAG, "skip folders sync, failed to inspect WeChat database schema", it)
         }.getOrDefault(false)
         folderSchemaReady = result
         return result
@@ -620,48 +619,12 @@ object AggregateChats : ClickableHookItem(),
     private fun showManagerDialog(context: Context) {
         showComposeDialog(context) {
             var folders by remember { mutableStateOf(loadFolders()) }
-            var editingFolder by remember { mutableStateOf<VirtualFolder?>(null) }
-            var creatingFolder by remember { mutableStateOf(false) }
-
-            if (creatingFolder) {
-                FolderEditorDialog(
-                    title = "New folder",
-                    folder = null,
-                    onDismiss = { creatingFolder = false },
-                    onSave = { folder ->
-                        folders = folders + folder
-                        saveFolders(folders)
-                        creatingFolder = false
-                    }
-                )
-                return@showComposeDialog
-            }
-
-            val selectedFolder = editingFolder
-            if (selectedFolder != null) {
-                FolderEditorDialog(
-                    title = "Edit folder",
-                    folder = selectedFolder,
-                    onDismiss = { editingFolder = null },
-                    onDelete = {
-                        folders = folders.filterNot { it.id == selectedFolder.id }
-                        saveFolders(folders)
-                        editingFolder = null
-                    },
-                    onSave = { folder ->
-                        folders = folders.map { if (it.id == folder.id) folder else it }
-                        saveFolders(folders)
-                        editingFolder = null
-                    }
-                )
-                return@showComposeDialog
-            }
 
             AlertDialogContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .fillMaxHeight(),
-                title = { Text("Virtual chat folders") },
+                title = { Text("聊天归拢") },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         LazyColumn(
@@ -670,27 +633,39 @@ object AggregateChats : ClickableHookItem(),
                         ) {
                             if (folders.isEmpty()) {
                                 item {
-                                    Text("No folders yet. Tap New to create one.")
+                                    Text("暂无文件夹, 点击「新建」来创建一个")
                                 }
                             }
                             items(folders, key = { it.id }) { folder ->
-                                FolderRow(folder) { editingFolder = folder }
+                                FolderRow(folder) {
+                                    showEditFolderDialog(
+                                        context = context,
+                                        folder = folder,
+                                        onFolderUpdated = { folders = loadFolders() },
+                                        onFolderDeleted = { folders = loadFolders() }
+                                    )
+                                }
                             }
                         }
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { creatingFolder = true }) { Text("新建") }
+                    TextButton(onDismiss) { Text("关闭") }
                     TextButton(onClick = {
                         syncFoldersToDatabase()
                         showToast("已重建文件夹索引")
-                    }) { Text("重建") }
-                    TextButton(onDismiss) { Text("关闭") }
+                    }) { Text("重载") }
+                    TextButton(onClick = {
+                        showCreateFolderDialog(context) {
+                            folders = loadFolders()
+                        }
+                    }) { Text("新建") }
                 },
                 confirmButton = {
                     Button(onClick = {
                         saveFolders(folders)
                         syncFoldersToDatabase()
+                        showToast(context, "已保存, 重启微信生效")
                         onDismiss()
                     }) { Text("保存") }
                 }
@@ -698,8 +673,51 @@ object AggregateChats : ClickableHookItem(),
         }
     }
 
+    private fun showCreateFolderDialog(context: Context, onFolderCreated: () -> Unit) {
+        showComposeDialog(context) {
+            FolderEditorDialog(
+                title = "新建文件夹",
+                folder = null,
+                onDismiss = onDismiss,
+                onSave = { folder ->
+                    val currentFolders = loadFolders()
+                    saveFolders(currentFolders + folder)
+                    onFolderCreated()
+                    onDismiss()
+                }
+            )
+        }
+    }
+
+    private fun showEditFolderDialog(
+        context: Context,
+        folder: ChatFolder,
+        onFolderUpdated: () -> Unit,
+        onFolderDeleted: () -> Unit
+    ) {
+        showComposeDialog(context) {
+            FolderEditorDialog(
+                title = "编辑文件夹",
+                folder = folder,
+                onDismiss = onDismiss,
+                onDelete = {
+                    val currentFolders = loadFolders()
+                    saveFolders(currentFolders.filterNot { it.id == folder.id })
+                    onFolderDeleted()
+                    onDismiss()
+                },
+                onSave = { updatedFolder ->
+                    val currentFolders = loadFolders()
+                    saveFolders(currentFolders.map { if (it.id == updatedFolder.id) updatedFolder else it })
+                    onFolderUpdated()
+                    onDismiss()
+                }
+            )
+        }
+    }
+
     @Composable
-    private fun FolderRow(folder: VirtualFolder, onClick: () -> Unit) {
+    private fun FolderRow(folder: ChatFolder, onClick: () -> Unit) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -707,28 +725,25 @@ object AggregateChats : ClickableHookItem(),
                 .padding(vertical = 8.dp)
         ) {
             Text(folder.name)
-            Text("${folder.members.size} conversations")
+            Text("${folder.members.size} 个对话")
         }
     }
 
     @Composable
     private fun FolderEditorDialog(
         title: String,
-        folder: VirtualFolder?,
+        folder: ChatFolder?,
         onDismiss: () -> Unit,
         onDelete: (() -> Unit)? = null,
-        onSave: (VirtualFolder) -> Unit
+        onSave: (ChatFolder) -> Unit
     ) {
         var name by remember(folder) { mutableStateOf(folder?.name ?: "") }
         var members by remember(folder) { mutableStateOf(folder?.members?.toSet().orEmpty()) }
         var selectingMembers by remember { mutableStateOf(false) }
-//        var avatarRevision by remember(folder) { mutableStateOf(0) }
-//        val folderId = folder?.id
-//        val context = LocalContext.current
 
         if (selectingMembers) {
             ContactsSelector(
-                title = "Select conversations",
+                title = "选择对话",
                 contacts = remember { allSelectableConversations() },
                 initialSelectedWxIds = members,
                 onDismiss = { selectingMembers = false },
@@ -751,55 +766,13 @@ object AggregateChats : ClickableHookItem(),
                         value = name,
                         onValueChange = { name = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Folder name") },
+                        label = { Text("文件夹名称") },
                         singleLine = true
                     )
-                    Text("Selected ${members.size} conversations")
+                    Text("已选择 ${members.size} 个对话")
                     Button(onClick = { selectingMembers = true }) {
-                        Text("Select friends and groups")
+                        Text("选择对话")
                     }
-//                    if (folderId != null) {
-//                        val hasAvatar = remember(folderId, avatarRevision) {
-//                            CustomLocalFriendAvatars.hasAvatar(folderId)
-//                        }
-//                        var roundAvatarEnabled by remember(folderId, avatarRevision) {
-//                            mutableStateOf(CustomLocalFriendAvatars.isRoundAvatarEnabledFor(folderId))
-//                        }
-//                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-//                            Button(onClick = {
-//                                CustomLocalFriendAvatars.selectAvatarFor(context, folderId)
-//                                avatarRevision++
-//                            }) {
-//                                Text(if (hasAvatar) "Change folder avatar" else "Set folder avatar")
-//                            }
-//                            if (hasAvatar) {
-//                                TextButton(onClick = {
-//                                    CustomLocalFriendAvatars.removeAvatarFor(folderId)
-//                                    avatarRevision++
-//                                    showToast("已清除文件夹头像")
-//                                }) {
-//                                    Text("清除头像")
-//                                }
-//                            }
-//                        }
-//                        if (hasAvatar) {
-//                            Row(
-//                                modifier = Modifier.fillMaxWidth(),
-//                                horizontalArrangement = Arrangement.SpaceBetween,
-//                                verticalAlignment = Alignment.CenterVertically
-//                            ) {
-//                                Text("Use rounded avatar")
-//                                Switch(
-//                                    checked = roundAvatarEnabled,
-//                                    onCheckedChange = {
-//                                        roundAvatarEnabled = it
-//                                        CustomLocalFriendAvatars.setRoundAvatarEnabledFor(folderId, it)
-//                                        avatarRevision++
-//                                    }
-//                                )
-//                            }
-//                        }
-//                    }
                 }
             },
             dismissButton = {
@@ -812,7 +785,7 @@ object AggregateChats : ClickableHookItem(),
                 Button(
                     enabled = name.isNotBlank(),
                     onClick = {
-                        val next = VirtualFolder(
+                        val next = ChatFolder(
                             id = folder?.id ?: newFolderId(),
                             name = name.trim(),
                             members = members.toList().sorted()
@@ -834,8 +807,8 @@ object AggregateChats : ClickableHookItem(),
         return friends + groups
     }
 
-    private fun loadFolders(): List<VirtualFolder> {
-        val raw = WePrefs.getStringOrDef(KEY_FOLDERS, "[]")
+    private fun loadFolders(): List<ChatFolder> {
+        val raw = folders
         return runCatching {
             val array = JSONArray(raw)
             buildList {
@@ -843,7 +816,7 @@ object AggregateChats : ClickableHookItem(),
                     val obj = array.getJSONObject(i)
                     val membersArray = obj.optJSONArray("members") ?: JSONArray()
                     add(
-                        VirtualFolder(
+                        ChatFolder(
                             id = obj.optString("id"),
                             name = obj.optString("name"),
                             members = buildList {
@@ -857,11 +830,11 @@ object AggregateChats : ClickableHookItem(),
                 }
             }.filter { isFolderId(it.id) && it.name.isNotBlank() }
         }.onFailure {
-            WeLogger.w(TAG, "failed to decode virtual folder config", it)
+            WeLogger.w(TAG, "failed to decode folders config", it)
         }.getOrDefault(emptyList())
     }
 
-    private fun saveFolders(folders: List<VirtualFolder>) {
+    private fun saveFolders(folders: List<ChatFolder>) {
         val array = JSONArray()
         folders.forEach { folder ->
             array.put(
@@ -872,10 +845,10 @@ object AggregateChats : ClickableHookItem(),
                 }
             )
         }
-        WePrefs.putString(KEY_FOLDERS, array.toString())
+        this.folders = array.toString()
     }
 
-    private fun folderById(folderId: String): VirtualFolder? {
+    private fun folderById(folderId: String): ChatFolder? {
         return loadFolders().firstOrNull { it.id == folderId }
     }
 
@@ -884,8 +857,7 @@ object AggregateChats : ClickableHookItem(),
     private fun isFolderId(value: String): Boolean = value.startsWith(FOLDER_PREFIX)
 
 
-
-    private data class VirtualFolder(
+    private data class ChatFolder(
         val id: String,
         val name: String,
         val members: List<String>
