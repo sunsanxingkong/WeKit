@@ -61,7 +61,7 @@ object ReMoment : SwitchFeature(), WeMomentsContextMenuApi.IMenuItemsProvider {
                 } catch (e: Throwable) {
                     WeLogger.e(TAG, "quick forward failed", e)
                 }
-            },
+            }
         )
     }
 
@@ -105,8 +105,6 @@ object ReMoment : SwitchFeature(), WeMomentsContextMenuApi.IMenuItemsProvider {
             type = LinkedList::class
         }.get()!! as LinkedList<*>
     }
-
-    // --- 提取的共享逻辑公共方法 ---
 
     private data class MomentData(
         val activity: Context,
@@ -154,15 +152,13 @@ object ReMoment : SwitchFeature(), WeMomentsContextMenuApi.IMenuItemsProvider {
         }
     }
 
-    // --- 核心业务实现 ---
-
     private fun repostMoment(context: WeMomentsContextMenuApi.MomentsContext) {
         val data = extractMomentData(context) ?: return
         val activity = data.activity
         val contentText = data.contentText
 
         when (data.type) {
-            1 -> { // 图片
+            1, 54 -> { // 图片
                 val tempPaths = prepareImagePaths(data.mediaList, data.nativeMediaList)
                 if (tempPaths == null) {
                     showToast(activity, "未找到本地缓存的图片!")
@@ -198,6 +194,7 @@ object ReMoment : SwitchFeature(), WeMomentsContextMenuApi.IMenuItemsProvider {
                 }
             }
             else -> { // 文字
+                WeLogger.i(TAG, "reposting type ${data.type}")
                 activity.startActivity(Intent {
                     setClassName(activity, "com.tencent.mm.plugin.sns.ui.SnsUploadUI")
                     putExtra("Ksnsupload_type", 9)
@@ -217,7 +214,7 @@ object ReMoment : SwitchFeature(), WeMomentsContextMenuApi.IMenuItemsProvider {
         CoroutineScope(Dispatchers.Main).launch {
             try {
                 val success = when (data.type) {
-                    1 -> { // 图片
+                    1, 54 -> { // 图片
                         val tempPaths = prepareImagePaths(data.mediaList, data.nativeMediaList)
                         if (tempPaths == null) {
                             showToastSuspend(activity, "未找到本地缓存的图片!")
@@ -273,7 +270,7 @@ object ReMoment : SwitchFeature(), WeMomentsContextMenuApi.IMenuItemsProvider {
                 }
             } catch (e: Exception) {
                 WeLogger.e(TAG, "failed to quick repost", e)
-                showToastSuspend(activity, "转发出现异常! 错因:  ${e.message}")
+                showToastSuspend(activity, "转发出现异常! 错因: ${e.message}")
             }
         }
     }
