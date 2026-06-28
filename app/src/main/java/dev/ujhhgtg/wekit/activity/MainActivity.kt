@@ -474,7 +474,13 @@ class MainActivity : ComponentActivity() {
                         listOf(
                             "/data/data/${PackageNames.WECHAT}/tinker",
                             "/data/data/${PackageNames.WECHAT}/tinker_server",
-                            "/data/data/${PackageNames.WECHAT}/tinker_temp"
+                            "/data/data/${PackageNames.WECHAT}/tinker_temp",
+                            "/data/user/0/${PackageNames.WECHAT}/tinker",
+                            "/data/user/0/${PackageNames.WECHAT}/tinker_server",
+                            "/data/user/0/${PackageNames.WECHAT}/tinker_temp",
+                            "/data/user/999/${PackageNames.WECHAT}/tinker",
+                            "/data/user/999/${PackageNames.WECHAT}/tinker_server",
+                            "/data/user/999/${PackageNames.WECHAT}/tinker_temp"
                         )
                     }
 

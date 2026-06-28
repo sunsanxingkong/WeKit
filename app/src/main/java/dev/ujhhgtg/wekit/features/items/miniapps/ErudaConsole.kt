@@ -18,7 +18,7 @@ import org.luckypray.dexkit.query.enums.StringMatchType
 @Feature(
     name = "Eruda 调试面板",
     categories = ["小程序"],
-    description = "小程序页面注入 Eruda 调试控制台 (没写完)"
+    description = "小程序页面注入 Eruda 调试控制台"
 )
 object ErudaConsole : SwitchFeature(), IResolveDex {
 

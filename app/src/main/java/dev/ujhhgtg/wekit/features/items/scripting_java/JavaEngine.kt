@@ -41,6 +41,7 @@ import dev.ujhhgtg.wekit.utils.reflection.bool
 import dev.ujhhgtg.wekit.utils.reflection.float
 import dev.ujhhgtg.wekit.utils.reflection.int
 import dev.ujhhgtg.wekit.utils.reflection.long
+import me.hd.wauxv.data.bean.ContactLabelBean
 import me.hd.wauxv.data.bean.MsgInfoBean
 import me.hd.wauxv.data.bean.info.FriendInfo
 import me.hd.wauxv.data.bean.info.GroupInfo
@@ -588,14 +589,14 @@ object JavaEngine {
             setMethod(BshMethod(
                 "getLoginWxid", emptyArray<Class<*>>()
             ) {
-                return@BshMethod runCatching { WeApi.selfWxId }.getOrDefault("")
+                return@BshMethod runCatchingBsh("getLoginWxid") { WeApi.selfWxId }.getOrDefault("")
             })
 
             // getLoginAlias() → current logged-in custom alias
             setMethod(BshMethod(
                 "getLoginAlias", emptyArray<Class<*>>()
             ) {
-                return@BshMethod runCatching { WeApi.selfCustomWxId }.getOrDefault("")
+                return@BshMethod runCatchingBsh("getLoginAlias") { WeApi.selfCustomWxId }.getOrDefault("")
             })
 
             // ===== Contacts — Lists =====
@@ -604,7 +605,7 @@ object JavaEngine {
             setMethod(BshMethod(
                 "getFriendList", emptyArray<Class<*>>()
             ) {
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("getFriendList") {
                     WeDatabaseApi.getFriends().map { FriendInfo(it) }
                 }.getOrDefault(emptyList<Any>())
             })
@@ -613,7 +614,7 @@ object JavaEngine {
             setMethod(BshMethod(
                 "getGroupList", emptyArray<Class<*>>()
             ) {
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("getGroupList") {
                     WeDatabaseApi.getGroups().map { GroupInfo(it) }
                 }.getOrDefault(emptyList<Any>())
             })
@@ -622,7 +623,7 @@ object JavaEngine {
             setMethod(BshMethod(
                 "getOfficialList", emptyArray<Class<*>>()
             ) {
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("getOfficialList") {
                     WeDatabaseApi.getOfficialAccounts().map {
                         FriendInfo(it.wxId, "", "", it.nickname, 0, "", 0L)
                     }
@@ -635,7 +636,7 @@ object JavaEngine {
                 "getGroupMemberList", arrayOf(BString)
             ) {
                 val groupId = it[0] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("getGroupMemberList") {
                     WeDatabaseApi.getGroupMembers(groupId).map { m -> m.wxId }
                 }.getOrDefault(emptyList<Any>())
             })
@@ -647,7 +648,7 @@ object JavaEngine {
                 "getFriendNickName", arrayOf(BString)
             ) {
                 val wxId = it[0] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("getFriendNickName") {
                     WeDatabaseApi.getFriend(wxId)?.nickname ?: ""
                 }.getOrDefault("")
             })
@@ -657,7 +658,7 @@ object JavaEngine {
                 "getFriendRemarkName", arrayOf(BString)
             ) {
                 val wxId = it[0] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("getFriendRemarkName") {
                     WeDatabaseApi.getFriend(wxId)?.remarkName ?: ""
                 }.getOrDefault("")
             })
@@ -667,7 +668,7 @@ object JavaEngine {
                 "getFriendName", arrayOf(BString)
             ) {
                 val wxId = it[0] as String
-                return@BshMethod runCatching { WeDatabaseApi.getDisplayName(wxId) }.getOrDefault(wxId)
+                return@BshMethod runCatchingBsh("getFriendName") { WeDatabaseApi.getDisplayName(wxId) }.getOrDefault(wxId)
             })
 
             // getFriendName(wxId, groupId) → display name within a group
@@ -676,7 +677,7 @@ object JavaEngine {
             ) {
                 val wxId = it[0] as String
                 val groupId = it[1] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("getFriendName") {
                     WeDatabaseApi.getGroupMemberDisplayName(groupId, wxId)
                 }.getOrDefault(wxId)
             })
@@ -687,7 +688,7 @@ object JavaEngine {
             ) {
                 val groupId = it[0] as String
                 val memberId = it[1] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("getFriendDisplayName") {
                     WeDatabaseApi.getGroupMemberDisplayName(groupId, memberId)
                 }.getOrDefault(memberId)
             })
@@ -697,7 +698,7 @@ object JavaEngine {
                 "getAvatarUrl", arrayOf(BString)
             ) {
                 val wxId = it[0] as String
-                return@BshMethod runCatching { WeDatabaseApi.getAvatarUrl(wxId) }.getOrDefault("")
+                return@BshMethod runCatchingBsh("getAvatarUrl") { WeDatabaseApi.getAvatarUrl(wxId) }.getOrDefault("")
             })
 
             // getAvatarUrl(wxId, big) → 'big' param not supported by WeKit; defaults to same URL
@@ -705,7 +706,7 @@ object JavaEngine {
                 "getAvatarUrl", arrayOf(BString, java.lang.Boolean.TYPE)
             ) {
                 val wxId = it[0] as String
-                return@BshMethod runCatching { WeDatabaseApi.getAvatarUrl(wxId) }.getOrDefault("")
+                return@BshMethod runCatchingBsh("getAvatarUrl") { WeDatabaseApi.getAvatarUrl(wxId) }.getOrDefault("")
             })
 
             // getDisplayName(convId) → conversation display name (remark > nickname > convId)
@@ -713,7 +714,7 @@ object JavaEngine {
                 "getDisplayName", arrayOf(BString)
             ) {
                 val convId = it[0] as String
-                return@BshMethod runCatching { WeDatabaseApi.getDisplayName(convId) }.getOrDefault(convId)
+                return@BshMethod runCatchingBsh("getDisplayName") { WeDatabaseApi.getDisplayName(convId) }.getOrDefault(convId)
             })
 
             // ===== Messaging =====
@@ -726,7 +727,7 @@ object JavaEngine {
             ) {
                 val toUser = it[0] as String
                 val text = it[1] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("sendText") {
                     WeMessageApi.sendText(toUser, text)
                 }.getOrDefault(false)
             })
@@ -795,7 +796,7 @@ object JavaEngine {
             ) {
                 val toUser = it[0] as String
                 val imgPath = it[1] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("sendImage") {
                     WeMessageApi.sendImage(toUser, imgPath)
                 }.getOrDefault(false)
             })
@@ -806,7 +807,7 @@ object JavaEngine {
             ) {
                 val toUser = it[0] as String
                 val imgPath = it[1] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("sendImage") {
                     WeMessageApi.sendImage(toUser, imgPath)
                 }.getOrDefault(false)
             })
@@ -817,7 +818,7 @@ object JavaEngine {
             ) {
                 val toUser = it[0] as String
                 val imgPath = it[1] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("sendImage") {
                     WeMessageApi.sendImage(toUser, imgPath)
                 }.getOrDefault(false)
             })
@@ -828,7 +829,7 @@ object JavaEngine {
             ) {
                 val toUser = it[0] as String
                 val path = it[1] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("sendVoice") {
                     WeMessageApi.sendVoice(toUser, path, 0)
                 }.getOrDefault(false)
             })
@@ -840,7 +841,7 @@ object JavaEngine {
                 val toUser = it[0] as String
                 val path = it[1] as String
                 val durationMs = it[2] as Int
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("sendVoice") {
                     WeMessageApi.sendVoice(toUser, path, durationMs)
                 }.getOrDefault(false)
             })
@@ -852,7 +853,7 @@ object JavaEngine {
                 val talker = it[0] as String
                 val filePath = it[1] as String
                 val title = it[2] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("sendFile") {
                     WeMessageApi.sendFile(talker, filePath, title)
                 }.getOrDefault(false)
             })
@@ -863,7 +864,7 @@ object JavaEngine {
             ) {
                 val toUser = it[0] as String
                 val xmlContent = it[1] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("sendXmlAppMsg") {
                     WeMessageApi.sendXmlAppMsg(toUser, xmlContent)
                 }.getOrDefault(false)
             })
@@ -875,7 +876,7 @@ object JavaEngine {
                 val talker = it[0] as String
                 val content = it[1] as String
                 val time = it[2] as Long
-                runCatching {
+                runCatchingBsh("insertSystemMsg") {
                     WeMessageApi.createSimpleMsgInfoAndInsert(MessageType.SYSTEM.code, talker, content, time)
                 }
             })
@@ -885,7 +886,7 @@ object JavaEngine {
                 "revokeMsg", arrayOf(java.lang.Long.TYPE)
             ) {
                 val msgSvrId = it[0] as Long
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("revokeMsg") {
                     WeMessageApi.revokeMsg(msgSvrId)
                 }.getOrDefault(false)
             })
@@ -897,7 +898,7 @@ object JavaEngine {
                 val talker = it[0] as String
                 val msgSvrId = it[1] as Long
                 val content = it[2] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("sendQuoteMsg") {
                     WeMessageApi.sendQuoteMsg(talker, msgSvrId, content)
                 }.getOrDefault(false)
             })
@@ -910,7 +911,7 @@ object JavaEngine {
             ) {
                 val talker = it[0] as String
                 val limit = it[2] as Int
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("queryHistoryMsg") {
                     WeDatabaseApi.getMessages(talker, 1, limit)
                 }.getOrDefault(emptyList<Any>())
             })
@@ -923,7 +924,7 @@ object JavaEngine {
             ) {
                 val toUser = it[0] as String
                 val path = it[1] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("sendEmoji") {
                     WeMessageApi.sendEmoji(toUser, path)
                 }.getOrDefault(false)
             })
@@ -934,7 +935,7 @@ object JavaEngine {
             ) {
                 val toUser = it[0] as String
                 val path = it[1] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("sendEmoji") {
                     WeMessageApi.sendEmoji(toUser, path)
                 }.getOrDefault(false)
             })
@@ -944,7 +945,7 @@ object JavaEngine {
                 "sendPat", arrayOf(BString, BString)
             ) {
                 val toUser = it[0] as String; val patTarget = it[1] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("sendPat") {
                     WeMessageApi.sendPat(toUser, patTarget)
                 }.getOrDefault(false)
             })
@@ -953,14 +954,14 @@ object JavaEngine {
             setMethod(BshMethod(
                 "sendLocation", arrayOf(BString, BString, BString, BString, BString, BString)
             ) {
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("sendLocation") {
                     WeMessageApi.sendLocation(
-                        it[0] as String,
-                        it[1] as String,
-                        it[2] as String,
-                        it[3] as String,
-                        it[4] as String,
-                        it[5] as String
+                         it[0] as String,
+                         it[1] as String,
+                         it[2] as String,
+                         it[3] as String,
+                         it[4] as String,
+                         it[5] as String
                     )
                 }.getOrDefault(false)
             })
@@ -970,7 +971,7 @@ object JavaEngine {
                 "sendShareCard", arrayOf(BString, BString)
             ) {
                 val toUser = it[0] as String; val cardWxId = it[1] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("sendShareCard") {
                     WeMessageApi.sendShareCard(toUser, cardWxId)
                 }.getOrDefault(false)
             })
@@ -980,7 +981,7 @@ object JavaEngine {
                 "sendVideo", arrayOf(BString, BString)
             ) {
                 val toUser = it[0] as String; val path = it[1] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("sendVideo") {
                     WeMessageApi.sendVideo(toUser, path)
                 }.getOrDefault(false)
             })
@@ -993,7 +994,7 @@ object JavaEngine {
                 val title = it[1] as String
                 val filePath = it[2] as String
                 val appId = it[3] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("shareFile") {
                     WeMessageApi.sendFile(talker, filePath, title, appId)
                 }.getOrDefault(false)
             })
@@ -1003,7 +1004,7 @@ object JavaEngine {
                 val talker = it[0] as String
                 val mediaMessage = it[1]
                 val appId = it[2] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("sendMediaMsg") {
                     WeMessageApi.sendMediaMsg(talker, mediaMessage, appId)
                 }.getOrDefault(false)
             })
@@ -1016,7 +1017,7 @@ object JavaEngine {
                 val webpageUrl = it[3] as String
                 val thumbData = it[4] as? ByteArray
                 val appId = it[5] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("shareWebpage") {
                     WeMessageApi.shareWebpage(talker, title, description, webpageUrl, thumbData, appId)
                 }.getOrDefault(false)
             })
@@ -1029,7 +1030,7 @@ object JavaEngine {
                 val videoUrl = it[3] as String
                 val thumbData = it[4] as? ByteArray
                 val appId = it[5] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("shareVideo") {
                     WeMessageApi.shareVideo(talker, title, description, videoUrl, thumbData, appId)
                 }.getOrDefault(false)
             })
@@ -1039,7 +1040,7 @@ object JavaEngine {
                 val talker = it[0] as String
                 val text = it[1] as String
                 val appId = it[2] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("shareText") {
                     WeMessageApi.shareText(talker, text, appId)
                 }.getOrDefault(false)
             })
@@ -1053,7 +1054,7 @@ object JavaEngine {
                 val musicDataUrl = it[4] as String
                 val thumbData = it[5] as? ByteArray
                 val appId = it[6] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("shareMusic") {
                     WeMessageApi.shareMusic(talker, title, description, musicUrl, musicDataUrl, thumbData, appId)
                 }.getOrDefault(false)
             })
@@ -1072,7 +1073,7 @@ object JavaEngine {
                 val songLyric = it[7] as String
                 val thumbData = it[8] as? ByteArray
                 val appId = it[9] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("shareMusicVideo") {
                     WeMessageApi.shareMusicVideo(talker, title, description, musicUrl, musicDataUrl, singerName, duration, songLyric, thumbData, appId)
                 }.getOrDefault(false)
             })
@@ -1088,7 +1089,7 @@ object JavaEngine {
                 val path = it[4] as String
                 val thumbData = it[5] as? ByteArray
                 val appId = it[6] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("shareMiniProgram") {
                     WeMessageApi.shareMiniProgram(talker, title, description, userName, path, thumbData, appId)
                 }.getOrDefault(false)
             })
@@ -1099,8 +1100,8 @@ object JavaEngine {
             setMethod(BshMethod(
                 "getContactLabelList", emptyArray<Class<*>>()
             ) {
-                return@BshMethod runCatching {
-                    WeContactLabelApi.getAllLabels().map { label -> me.hd.wauxv.data.bean.ContactLabelBean(label) }
+                return@BshMethod runCatchingBsh("getContactLabelList") {
+                    WeContactLabelApi.getAllLabels().map { label -> ContactLabelBean(label) }
                 }.getOrDefault(emptyList<Any>())
             })
 
@@ -1109,7 +1110,7 @@ object JavaEngine {
                 "getContactByLabelId", arrayOf(int)
             ) {
                 val labelId = it[0] as Int
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("getContactByLabelId") {
                     WeContactLabelApi.getContactsByLabelId(labelId)
                 }.getOrDefault(emptyList<Any>())
             })
@@ -1120,7 +1121,7 @@ object JavaEngine {
             ) {
                 val labelIdStr = it[0] as String
                 val labelId = labelIdStr.toIntOrNull() ?: 0
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("getContactByLabelId") {
                     WeContactLabelApi.getContactsByLabelId(labelId)
                 }.getOrDefault(emptyList<Any>())
             })
@@ -1130,7 +1131,7 @@ object JavaEngine {
                 "getContactByLabelName", arrayOf(BString)
             ) {
                 val labelName = it[0] as String
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("getContactByLabelName") {
                     WeContactLabelApi.getContactsByLabelName(labelName)
                 }.getOrDefault(emptyList<Any>())
             })
@@ -1142,7 +1143,7 @@ object JavaEngine {
                 "verifyUser", arrayOf(BString, BString, int)
             ) {
                 val userId = it[0] as String; val ticket = it[1] as String; val scene = it[2] as Int
-                runCatching { WeContactApi.verifyUser(userId, ticket, scene) }
+                runCatchingBsh("verifyUser") { WeContactApi.verifyUser(userId, ticket, scene) }
             })
 
             // verifyUser(userId, ticket, scene, privacy) → opens verify UI
@@ -1150,7 +1151,7 @@ object JavaEngine {
                 "verifyUser", arrayOf(BString, BString, int, int)
             ) {
                 val userId = it[0] as String; val ticket = it[1] as String; val scene = it[2] as Int; val privacy = it[3] as Int
-                runCatching { WeContactApi.verifyUser(userId, ticket, scene, privacy) }
+                runCatchingBsh("verifyUser") { WeContactApi.verifyUser(userId, ticket, scene, privacy) }
             })
 
             // ===== Chatroom Management =====
@@ -1161,7 +1162,7 @@ object JavaEngine {
             ) {
                 val groupId = it[0] as String
                 val memberWxId = it[1] as String
-                runCatching { WeGroupApi.addMember(groupId, memberWxId) }
+                runCatchingBsh("addChatroomMember") { WeGroupApi.addMember(groupId, memberWxId) }
             })
 
             // addChatroomMember(groupId, memberList) — add multiple members
@@ -1171,7 +1172,7 @@ object JavaEngine {
                 val groupId = it[0] as String
                 @Suppress("UNCHECKED_CAST")
                 val memberList = it[1] as List<String>
-                runCatching { WeGroupApi.addMembers(groupId, memberList) }
+                runCatchingBsh("addChatroomMember") { WeGroupApi.addMembers(groupId, memberList) }
             })
 
             // delChatroomMember(groupId, memberWxId) — remove single member
@@ -1180,7 +1181,7 @@ object JavaEngine {
             ) {
                 val groupId = it[0] as String
                 val memberWxId = it[1] as String
-                runCatching { WeGroupApi.delMember(groupId, memberWxId) }
+                runCatchingBsh("delChatroomMember") { WeGroupApi.delMember(groupId, memberWxId) }
             })
 
             // delChatroomMember(groupId, memberList) — remove multiple members
@@ -1190,7 +1191,7 @@ object JavaEngine {
                 val groupId = it[0] as String
                 @Suppress("UNCHECKED_CAST")
                 val memberList = it[1] as List<String>
-                runCatching { WeGroupApi.delMembers(groupId, memberList) }
+                runCatchingBsh("delChatroomMember") { WeGroupApi.delMembers(groupId, memberList) }
             })
 
             // inviteChatroomMember(groupId, memberWxId) — invite single member
@@ -1199,7 +1200,7 @@ object JavaEngine {
             ) {
                 val groupId = it[0] as String
                 val memberWxId = it[1] as String
-                runCatching { WeGroupApi.inviteMember(groupId, memberWxId) }
+                runCatchingBsh("inviteChatroomMember") { WeGroupApi.inviteMember(groupId, memberWxId) }
             })
 
             // inviteChatroomMember(groupId, memberList) — invite multiple members
@@ -1209,7 +1210,7 @@ object JavaEngine {
                 val groupId = it[0] as String
                 @Suppress("UNCHECKED_CAST")
                 val memberList = it[1] as List<String>
-                runCatching { WeGroupApi.inviteMembers(groupId, memberList) }
+                runCatchingBsh("inviteChatroomMember") { WeGroupApi.inviteMembers(groupId, memberList) }
             })
 
             // ===== Hooks =====
@@ -1256,7 +1257,7 @@ object JavaEngine {
             setMethod(BshMethod("findClassList", arrayOf(List::class.java)) {
                 @Suppress("UNCHECKED_CAST")
                 val usingStrings = it[0] as List<String>
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("findClassList") {
                     DexKit.findClass {
                         matcher {
                             usingStrings(usingStrings)
@@ -1267,7 +1268,7 @@ object JavaEngine {
             setMethod(BshMethod("findMemberList", arrayOf(List::class.java)) {
                 @Suppress("UNCHECKED_CAST")
                 val usingStrings = it[0] as List<String>
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("findMemberList") {
                     DexKit.findMethod {
                         matcher {
                             usingStrings(usingStrings)
@@ -1629,7 +1630,7 @@ object JavaEngine {
                 val content = it[2] as String
                 val encodedContent = android.text.Html.escapeHtml(content)
                 val xml = """<msg><appmsg type="1"><title>$title</title><des>$title</des><content>|WA|$encodedContent</content></appmsg></msg>"""
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("sendCipherMsg") {
                     WeMessageApi.sendXmlAppMsg(toUser, xml)
                 }.getOrDefault(false)
             })
@@ -1637,7 +1638,7 @@ object JavaEngine {
                 val toUser = it[0] as String
                 val noteXml = it[1] as String
                 val xml = """<msg><appmsg type="53"><title>$noteXml</title><extinfo><solitaire_info></solitaire_info></extinfo></appmsg></msg>"""
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("sendNoteMsg") {
                     WeMessageApi.sendXmlAppMsg(toUser, xml)
                 }.getOrDefault(false)
             })
@@ -1647,7 +1648,7 @@ object JavaEngine {
                 val pagePath = it[2] as String
                 val username = it[3] as String
                 val xml = """<msg><appmsg type="33"><title>$title</title><weappinfo><item><pagepath><![CDATA[$pagePath]]></pagepath><username>$username</username></item></weappinfo></appmsg></msg>"""
-                return@BshMethod runCatching {
+                return@BshMethod runCatchingBsh("sendAppBrandMsg") {
                     WeMessageApi.sendXmlAppMsg(toUser, xml)
                 }.getOrDefault(false)
             })
@@ -1722,6 +1723,12 @@ object JavaEngine {
     private fun saveConfig(plugin: JavaPlugin, props: Properties) {
         FileOutputStream(configFile(plugin)).use { stream ->
             props.store(stream, null)
+        }
+    }
+
+    private inline fun <T> runCatchingBsh(methodName: String, block: () -> T): Result<T> {
+        return runCatching(block).onFailure {
+            WeLogger.e(TAG, "Error executing BSH method $methodName", it)
         }
     }
 }
