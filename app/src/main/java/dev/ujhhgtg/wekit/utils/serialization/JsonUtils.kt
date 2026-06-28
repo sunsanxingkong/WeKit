@@ -13,6 +13,7 @@ import kotlinx.serialization.json.longOrNull
 val DefaultJson = Json {
     ignoreUnknownKeys = true
     isLenient = true
+    encodeDefaults = true
 }
 
 fun JsonElement.getByPath(path: String): JsonElement? {

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -13,6 +14,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,10 +26,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.tencent.mm.ui.LauncherUI
+import com.tencent.mm.ui.MMActivity
+import com.tencent.mm.ui.conversation.BaseConversationUI
+import com.tencent.mm.ui.conversation.ConvBoxServiceConversationUI
+import com.tencent.mm.ui.conversation.MainUI
 import de.robv.android.xposed.XC_MethodHook
 import dev.ujhhgtg.comptime.This
+import dev.ujhhgtg.reflekt.reflekt
 import dev.ujhhgtg.wekit.dexkit.abc.IResolveDex
-import dev.ujhhgtg.wekit.dexkit.dsl.dexClass
 import dev.ujhhgtg.wekit.dexkit.dsl.dexMethod
 import dev.ujhhgtg.wekit.features.api.core.WeDatabaseApi
 import dev.ujhhgtg.wekit.features.api.core.WeDatabaseListenerApi
@@ -33,7 +42,6 @@ import dev.ujhhgtg.wekit.features.api.ui.WeStartActivityApi
 import dev.ujhhgtg.wekit.features.core.ClickableFeature
 import dev.ujhhgtg.wekit.features.core.Feature
 import dev.ujhhgtg.wekit.features.items.contacts.CustomLocalFriendAvatars
-import dev.ujhhgtg.wekit.preferences.WePrefs.Companion.prefOption
 import dev.ujhhgtg.wekit.ui.content.AlertDialogContent
 import dev.ujhhgtg.wekit.ui.content.Button
 import dev.ujhhgtg.wekit.ui.content.ContactsSelector
@@ -42,8 +50,13 @@ import dev.ujhhgtg.wekit.ui.utils.showComposeDialog
 import dev.ujhhgtg.wekit.utils.HostInfo
 import dev.ujhhgtg.wekit.utils.WeLogger
 import dev.ujhhgtg.wekit.utils.android.showToast
-import org.json.JSONArray
-import org.json.JSONObject
+import dev.ujhhgtg.wekit.utils.fs.KnownPaths
+import dev.ujhhgtg.wekit.utils.serialization.DefaultJson
+import kotlinx.serialization.Serializable
+import kotlin.io.path.div
+import kotlin.io.path.exists
+import kotlin.io.path.readText
+import kotlin.io.path.writeText
 import java.lang.reflect.Modifier as JavaModifier
 
 @Feature(name = "对话归拢", categories = ["聊天"], description = "将多个对话归拢在一个文件夹内\n设置对话头像需同时启用「自定义好友本地头像」")
@@ -53,96 +66,11 @@ object AggregateChats : ClickableFeature(),
     IResolveDex {
 
     private val TAG = This.Class.simpleName
-    private const val FOLDER_PREFIX = "wekit_fold_"
-    private var folders by prefOption("chat_folders", "[]")
-    private const val CONTAINER_ACTIVITY_FALLBACK = "com.tencent.mm.ui.conversation.ConvBoxServiceConversationUI"
+    private const val FOLDER_PREFIX = "wekit_folder_"
 
-    private val classMainUi by dexClass {
-        matcher {
-            className = "com.tencent.mm.ui.conversation.MainUI"
-        }
-    }
-    private val classContainerActivity by dexClass {
-        matcher {
-            className = CONTAINER_ACTIVITY_FALLBACK
-        }
-    }
-    private val classMmActivity by dexClass {
-        matcher {
-            className = "com.tencent.mm.ui.MMActivity"
-        }
-    }
-    private val methodMainUiOnResume by dexMethod {
-        matcher {
-            declaredClass(classMainUi.clazz)
-            name = "onResume"
-            paramCount = 0
-            returnType(Void.TYPE)
-        }
-    }
-    private val methodLauncherStartChatting by dexMethod(allowFailure = true) {
-        matcher {
-            declaredClass = "com.tencent.mm.ui.LauncherUI"
-            name = "startChatting"
-            paramTypes("java.lang.String", "android.os.Bundle", "boolean")
-            returnType(Void.TYPE)
-        }
-    }
-    private val methodBaseConversationStartChatting by dexMethod(allowFailure = true) {
-        matcher {
-            usingStrings("try startChatting, ishow:%b, post: %b")
-            paramTypes("java.lang.String", "android.os.Bundle", "boolean", "boolean")
-            returnType("void")
-        }
-    }
-    private val methodContainerOnCreate by dexMethod(allowFailure = true) {
-        matcher {
-            declaredClass(classContainerActivity.clazz)
-            name = "onCreate"
-            paramTypes("android.os.Bundle")
-            returnType(Void.TYPE)
-        }
-    }
-    private val methodContainerOnResume by dexMethod(allowFailure = true) {
-        matcher {
-            declaredClass(classContainerActivity.clazz.superclass!!)
-            name = "onResume"
-            paramCount = 0
-            returnType(Void.TYPE)
-        }
-    }
-    private val methodContainerOnDestroy by dexMethod(allowFailure = true) {
-        matcher {
-            declaredClass(classContainerActivity.clazz.superclass!!)
-            name = "onDestroy"
-            paramCount = 0
-            returnType(Void.TYPE)
-        }
-    }
-    private val methodContainerFinish by dexMethod(allowFailure = true) {
-        matcher {
-            declaredClass(classContainerActivity.clazz)
-            name = "finish"
-            paramCount = 0
-            returnType(Void.TYPE)
-        }
-    }
-    private val methodSetMmTitle by dexMethod(allowFailure = true) {
-        matcher {
-            declaredClass(classMmActivity.clazz)
-            name = "setMMTitle"
-            paramTypes("java.lang.String")
-            returnType(Void.TYPE)
-        }
-    }
-    private val methodSetConversationTitle by dexMethod(allowFailure = true) {
-        matcher {
-            declaredClass(classContainerActivity.clazz.superclass!!)
-            name = "setTitle"
-            paramTypes("java.lang.String")
-            returnType(Void.TYPE)
-        }
-    }
+    private val foldersFile by lazy { KnownPaths.moduleData / "chat_folders.json" }
+
+    private const val CONTAINER_UI_NAME = "com.tencent.mm.ui.conversation.ConvBoxServiceConversationUI"
     private val methodSqliteWrapperRawQuery by dexMethod(allowFailure = true) {
         matcher {
             modifiers = JavaModifier.PUBLIC
@@ -168,6 +96,11 @@ object AggregateChats : ClickableFeature(),
     @Volatile
     private var folderSchemaReady: Boolean? = null
 
+    @Volatile
+    private var foldersCache: List<ChatFolder>? = null
+
+    private val folderMembersCache = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
+
     private val suppressQueryRewrite = ThreadLocal.withInitial { false }
 
     override fun onEnable() {
@@ -175,14 +108,23 @@ object AggregateChats : ClickableFeature(),
         WeStartActivityApi.addListener(this)
         hookMainUiRefresh()
         hookOpenFolder()
-        hookContainerPage()
+        hookConversationPages()
         hookSqliteWrapperQuery()
         hookConversationStorageParentQuery()
+
+        CustomLocalFriendAvatars.fallbackUsernameProvider = { folderId ->
+            if (isFolderId(folderId) && !CustomLocalFriendAvatars.avatarMap.containsKey(folderId)) {
+                getFallbackAvatarMember(folderId)
+            } else {
+                null
+            }
+        }
     }
 
     override fun onDisable() {
         WeDatabaseListenerApi.removeListener(this)
         WeStartActivityApi.removeListener(this)
+        CustomLocalFriendAvatars.fallbackUsernameProvider = null
     }
 
     override fun onClick(context: Context) {
@@ -207,29 +149,27 @@ object AggregateChats : ClickableFeature(),
     override fun onStartActivity(param: XC_MethodHook.MethodHookParam, intent: Intent) {
         val folderId = readFolderIdFromIntent(intent) ?: return
         val componentName = intent.component?.className
-        if (componentName != containerActivityName()) {
+        if (componentName != CONTAINER_UI_NAME) {
             activeFolderId = folderId
-            intent.setClassName(param.thisObject as? Context ?: return, containerActivityName())
+            intent.setClassName(param.thisObject as? Context ?: return, CONTAINER_UI_NAME)
         }
         applyFolderContainerIntent(intent, folderId)
     }
 
     private fun hookMainUiRefresh() {
-        methodMainUiOnResume.hookAfter {
+        MainUI::class.reflekt().firstMethod("onResume").hookAfter {
             syncFoldersToDatabase()
         }
     }
 
     private fun hookOpenFolder() {
-        if (!methodLauncherStartChatting.isPlaceholder) {
-            methodLauncherStartChatting.hookBefore {
-                interceptFolderChatOpen(args.firstOrNull() as? String, thisObject) {
-                    result = null
-                }
+        LauncherUI::class.reflekt().firstMethod("startChatting").hookBefore {
+            interceptFolderChatOpen(args.firstOrNull() as? String, thisObject) {
+                result = null
             }
         }
-        if (methodBaseConversationStartChatting.isPlaceholder) return
-        methodBaseConversationStartChatting.hookBefore {
+
+        BaseConversationUI::class.reflekt().firstMethod("startChatting").hookBefore {
             interceptFolderChatOpen(args.firstOrNull() as? String, thisObject) {
                 result = null
             }
@@ -247,27 +187,22 @@ object AggregateChats : ClickableFeature(),
         cancelOriginal()
     }
 
-    private fun hookContainerPage() {
-        if (!methodContainerOnCreate.isPlaceholder) methodContainerOnCreate.hookBefore {
-            val activity = thisObject as? Activity ?: return@hookBefore
-            if (!classContainerActivity.clazz.isInstance(activity)) return@hookBefore
+    private fun hookConversationPages() {
+        ConvBoxServiceConversationUI::class.hookBeforeOnCreate {
+            val activity = thisObject as? Activity ?: return@hookBeforeOnCreate
             activeFolderId = readFolderIdFromIntent(activity.intent) ?: activeFolderId
         }
-        if (!methodContainerOnResume.isPlaceholder) methodContainerOnResume.hookAfter {
-            val activity = thisObject as? Activity ?: return@hookAfter
-            if (!classContainerActivity.clazz.isInstance(activity)) return@hookAfter
-            activeFolderId = activeFolderId ?: readFolderIdFromIntent(activity.intent)
-            injectFolderTitle(activity)
-        }
-        if (!methodContainerOnDestroy.isPlaceholder) methodContainerOnDestroy.hookAfter {
-            val activity = thisObject as? Activity ?: return@hookAfter
-            if (!classContainerActivity.clazz.isInstance(activity)) return@hookAfter
-            activeFolderId = null
-        }
-        if (!methodContainerFinish.isPlaceholder) methodContainerFinish.hookAfter {
-            val activity = thisObject as? Activity ?: return@hookAfter
-            if (!classContainerActivity.clazz.isInstance(activity)) return@hookAfter
-            activeFolderId = null
+
+        BaseConversationUI::class.reflekt().apply {
+            firstMethod("onResume").hookAfter {
+                val activity = thisObject as? Activity ?: return@hookAfter
+                activeFolderId = activeFolderId ?: readFolderIdFromIntent(activity.intent)
+                injectFolderTitle(activity)
+            }
+
+            firstMethod("onDestroy").hookAfter {
+                activeFolderId = null
+            }
         }
     }
 
@@ -296,7 +231,7 @@ object AggregateChats : ClickableFeature(),
     private fun launchFolderContainer(source: Any?, folderId: String) {
         val context = source as? Context ?: return
         val intent = Intent().apply {
-            setClassName(context, containerActivityName())
+            setClassName(context, CONTAINER_UI_NAME)
             applyFolderContainerIntent(this, folderId)
         }
         context.startActivity(intent)
@@ -310,28 +245,27 @@ object AggregateChats : ClickableFeature(),
 
     private fun injectFolderTitle(activity: Activity) {
         val folder = folderById(activeFolderId ?: return) ?: return
-        val titleSet = runCatching {
-            if (!methodSetConversationTitle.isPlaceholder) {
-                methodSetConversationTitle.method.invoke(activity, folder.name)
-                true
-            } else {
-                false
+        when (activity) {
+            is BaseConversationUI -> {
+                activity.setTitle(folder.name)
             }
-        }.getOrDefault(false)
-        if (titleSet) return
 
-        runCatching {
-            if (!methodSetMmTitle.isPlaceholder) methodSetMmTitle.method.invoke(activity, folder.name)
-        }.onFailure {
-            WeLogger.w(TAG, "failed to set folder title for ${folder.id}", it)
+            is MMActivity -> {
+                activity.setMMTitle(folder.name)
+            }
+
+            else -> {
+                WeLogger.w(
+                    TAG,
+                    "failing to set title for ${activity.javaClass.name}; it's neither BaseConversationUI nor MMActivity"
+                )
+            }
         }
     }
 
-    private fun containerActivityName(): String {
-        return classContainerActivity.clazz.name
-    }
-
     private fun syncFoldersToDatabase() {
+        foldersCache = null
+        folderMembersCache.clear()
         val folders = loadFolders()
         runCatching {
             withQueryRewriteSuppressed {
@@ -382,9 +316,11 @@ object AggregateChats : ClickableFeature(),
     }
 
     private fun syncFolder(folder: ChatFolder) {
-        val members = folder.members.filterNot(::isFolderId).distinct()
+        val members = getFolderMembers(folder).filterNot(::isFolderId).distinct()
         if (members.isNotEmpty()) {
-            ensureMemberConversationRows(folder.id, members)
+            if (folder.type == FolderType.MANUAL) {
+                ensureMemberConversationRows(folder.id, members)
+            }
             val placeholders = members.joinToString(",") { "?" }
             WeDatabaseApi.execStatement(
                 "UPDATE ${ConversationTable.NAME} SET ${ConversationTable.PARENT_REF}=? WHERE ${ConversationTable.USERNAME} IN ($placeholders)",
@@ -737,6 +673,7 @@ object AggregateChats : ClickableFeature(),
 
     @Composable
     private fun FolderRow(folder: ChatFolder, onClick: () -> Unit) {
+        val count = remember(folder) { getFolderMembers(folder).size }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -744,7 +681,13 @@ object AggregateChats : ClickableFeature(),
                 .padding(vertical = 8.dp)
         ) {
             Text(folder.name)
-            Text("${folder.members.size} 个对话")
+            val desc = when (folder.type) {
+                FolderType.MANUAL -> "手动选择: $count 个对话"
+                FolderType.PRESET_GROUPS -> "所有群聊: $count 个对话"
+                FolderType.PRESET_OFFICIALS -> "所有公众号: $count 个对话"
+                FolderType.SQL -> "SQL规则: $count 个对话"
+            }
+            Text(desc)
         }
     }
 
@@ -760,6 +703,22 @@ object AggregateChats : ClickableFeature(),
         var name by remember(folder) { mutableStateOf(folder?.name ?: "") }
         var members by remember(folder) { mutableStateOf(folder?.members?.toSet().orEmpty()) }
         var selectingMembers by remember { mutableStateOf(false) }
+
+        var type by remember(folder) { mutableStateOf(folder?.type ?: FolderType.MANUAL) }
+        var selectFields by remember(folder) { mutableStateOf(folder?.selectFields ?: "r.username") }
+        var whereClause by remember(folder) { mutableStateOf(folder?.whereClause ?: "") }
+
+        val matchedCount = remember(type, members, selectFields, whereClause) {
+            val tempFolder = ChatFolder(
+                id = folderId,
+                name = name,
+                members = members.toList(),
+                type = type,
+                selectFields = selectFields,
+                whereClause = whereClause
+            )
+            getFolderMembers(tempFolder).size
+        }
 
         var hasAvatar by remember(folderId) {
             mutableStateOf(CustomLocalFriendAvatars.avatarMap.containsKey(folderId))
@@ -793,30 +752,184 @@ object AggregateChats : ClickableFeature(),
                         label = { Text("文件夹名称") },
                         singleLine = true
                     )
-                    Text("已选择 ${members.size} 个对话")
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            modifier = Modifier.weight(1f),
-                            onClick = { selectingMembers = true }
-                        ) {
-                            Text("选择对话")
-                        }
 
-                        if (hasAvatar) {
-                            Button(onClick = {
-                                CustomLocalFriendAvatars.removeAvatar(folderId)
-                                hasAvatar = false
-                            }) {
-                                Text("清除头像")
+                    var typeExpanded by remember { mutableStateOf(false) }
+                    Column {
+                        Text("归拢模式", style = MaterialTheme.typography.labelSmall)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { typeExpanded = true }
+                                .padding(vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = when (type) {
+                                    FolderType.MANUAL -> "手动选择"
+                                    FolderType.PRESET_GROUPS -> "自动所有群聊"
+                                    FolderType.PRESET_OFFICIALS -> "自动所有公众号"
+                                    FolderType.SQL -> "自定义 SQL 规则"
+                                },
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = typeExpanded,
+                            onDismissRequest = { typeExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("手动选择") },
+                                onClick = {
+                                    type = FolderType.MANUAL
+                                    typeExpanded = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("自动所有群聊") },
+                                onClick = {
+                                    type = FolderType.PRESET_GROUPS
+                                    typeExpanded = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("自动所有公众号") },
+                                onClick = {
+                                    type = FolderType.PRESET_OFFICIALS
+                                    typeExpanded = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("自定义 SQL 规则") },
+                                onClick = {
+                                    type = FolderType.SQL
+                                    typeExpanded = false
+                                }
+                            )
+                        }
+                    }
+
+                    when (type) {
+                        FolderType.MANUAL -> {
+                            Text("已选择 $matchedCount 个对话")
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { selectingMembers = true }
+                                ) {
+                                    Text("选择对话")
+                                }
+
+                                if (hasAvatar) {
+                                    Button(onClick = {
+                                        CustomLocalFriendAvatars.removeAvatar(folderId)
+                                        hasAvatar = false
+                                    }) {
+                                        Text("清除头像")
+                                    }
+                                }
+                                Button(onClick = {
+                                    CustomLocalFriendAvatars.selectAvatarImage(HostInfo.application, folderId)
+                                }) {
+                                    Text(if (hasAvatar) "更换头像" else "设置头像")
+                                }
                             }
                         }
-                        Button(onClick = {
-                            CustomLocalFriendAvatars.selectAvatarImage(HostInfo.application, folderId)
-                        }) {
-                            Text(if (hasAvatar) "更换头像" else "设置头像")
+                        FolderType.PRESET_GROUPS -> {
+                            Text("自动归拢所有群聊（当前匹配到 $matchedCount 个对话）")
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (hasAvatar) {
+                                    Button(onClick = {
+                                        CustomLocalFriendAvatars.removeAvatar(folderId)
+                                        hasAvatar = false
+                                    }) {
+                                        Text("清除头像")
+                                    }
+                                }
+                                Button(
+                                    modifier = Modifier.weight(1f),
+                                    onClick = {
+                                        CustomLocalFriendAvatars.selectAvatarImage(HostInfo.application, folderId)
+                                    }
+                                ) {
+                                    Text(if (hasAvatar) "更换头像" else "设置头像")
+                                }
+                            }
+                        }
+                        FolderType.PRESET_OFFICIALS -> {
+                            Text("自动归拢所有公众号（当前匹配到 $matchedCount 个对话）")
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (hasAvatar) {
+                                    Button(onClick = {
+                                        CustomLocalFriendAvatars.removeAvatar(folderId)
+                                        hasAvatar = false
+                                    }) {
+                                        Text("清除头像")
+                                    }
+                                }
+                                Button(
+                                    modifier = Modifier.weight(1f),
+                                    onClick = {
+                                        CustomLocalFriendAvatars.selectAvatarImage(HostInfo.application, folderId)
+                                    }
+                                ) {
+                                    Text(if (hasAvatar) "更换头像" else "设置头像")
+                                }
+                            }
+                        }
+                        FolderType.SQL -> {
+                            OutlinedTextField(
+                                value = selectFields,
+                                onValueChange = { selectFields = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("SELECT 字段") },
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = whereClause,
+                                onValueChange = { whereClause = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("WHERE 条件") },
+                                singleLine = false,
+                                maxLines = 4
+                            )
+                            Text(
+                                text = "当前匹配到 $matchedCount 个对话",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = "数据源自 rcontact r, img_flag i, rconversation c\n示例: c.unReadCount > 0 AND r.username LIKE '%@chatroom'",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (hasAvatar) {
+                                    Button(onClick = {
+                                        CustomLocalFriendAvatars.removeAvatar(folderId)
+                                        hasAvatar = false
+                                    }) {
+                                        Text("清除头像")
+                                    }
+                                }
+                                Button(
+                                    modifier = Modifier.weight(1f),
+                                    onClick = {
+                                        CustomLocalFriendAvatars.selectAvatarImage(HostInfo.application, folderId)
+                                    }
+                                ) {
+                                    Text(if (hasAvatar) "更换头像" else "设置头像")
+                                }
+                            }
                         }
                     }
                 }
@@ -834,7 +947,10 @@ object AggregateChats : ClickableFeature(),
                         val next = ChatFolder(
                             id = folderId,
                             name = name.trim(),
-                            members = members.toList().sorted()
+                            members = members.toList().sorted(),
+                            type = type,
+                            selectFields = selectFields.trim(),
+                            whereClause = whereClause.trim()
                         )
                         onSave(next)
                     }
@@ -843,45 +959,100 @@ object AggregateChats : ClickableFeature(),
         )
     }
 
-    private fun loadFolders(): List<ChatFolder> {
-        val raw = folders
-        return runCatching {
-            val array = JSONArray(raw)
-            buildList {
-                for (i in 0 until array.length()) {
-                    val obj = array.getJSONObject(i)
-                    val membersArray = obj.optJSONArray("members") ?: JSONArray()
-                    add(
-                        ChatFolder(
-                            id = obj.optString("id"),
-                            name = obj.optString("name"),
-                            members = buildList {
-                                for (j in 0 until membersArray.length()) {
-                                    val member = membersArray.optString(j)
-                                    if (member.isNotBlank()) add(member)
-                                }
-                            }
-                        )
+    private fun resolveFolderMembers(folder: ChatFolder): List<String> {
+        return when (folder.type) {
+            FolderType.MANUAL -> folder.members
+            FolderType.PRESET_GROUPS -> {
+                runCatching {
+                    val result = WeDatabaseApi.executeQuery(
+                        "SELECT r.username FROM rcontact r WHERE r.username LIKE '%@chatroom'"
                     )
+                    result.mapNotNull { it["username"]?.toString() }
+                }.getOrElse {
+                    WeLogger.e(TAG, "failed to query preset groups", it)
+                    emptyList()
                 }
-            }.filter { isFolderId(it.id) && it.name.isNotBlank() }
+            }
+            FolderType.PRESET_OFFICIALS -> {
+                runCatching {
+                    val result = WeDatabaseApi.executeQuery(
+                        "SELECT r.username FROM rcontact r WHERE r.username LIKE 'gh_%'"
+                    )
+                    result.mapNotNull { it["username"]?.toString() }
+                }.getOrElse {
+                    WeLogger.e(TAG, "failed to query preset officials", it)
+                    emptyList()
+                }
+            }
+            FolderType.SQL -> {
+                runCatching {
+                    val select = folder.selectFields.ifBlank { "r.username" }
+                    val where = folder.whereClause.ifBlank { "1=1" }
+                    val query = "SELECT $select FROM rcontact r LEFT JOIN img_flag i ON r.username = i.username LEFT JOIN rconversation c ON r.username = c.username WHERE $where"
+                    val result = WeDatabaseApi.executeQuery(query)
+                    result.mapNotNull { row ->
+                        val username = row["username"]?.toString()
+                        if (username != null) return@mapNotNull username
+                        row.values.firstOrNull()?.toString()
+                    }
+                }.getOrElse {
+                    WeLogger.e(TAG, "failed to query custom sql for folder ${folder.id}", it)
+                    emptyList()
+                }
+            }
+        }
+    }
+
+    private fun getFolderMembers(folder: ChatFolder): List<String> {
+        if (folder.type == FolderType.MANUAL) {
+            return folder.members
+        }
+        val cached = folderMembersCache[folder.id]
+        if (cached != null) return cached
+
+        if (!WeDatabaseApi.isReady) {
+            return emptyList()
+        }
+        val resolved = resolveFolderMembers(folder)
+        if (resolved.isNotEmpty()) {
+            folderMembersCache[folder.id] = resolved
+        }
+        return resolved
+    }
+
+    private fun getFallbackAvatarMember(folderId: String): String? {
+        val folder = folderById(folderId) ?: return null
+        val members = getFolderMembers(folder).filterNot(::isFolderId)
+        return members.firstOrNull()
+    }
+
+    private fun loadFolders(): List<ChatFolder> {
+        foldersCache?.let { return it }
+        val folders = runCatching {
+            val file = foldersFile
+            if (!file.exists()) return emptyList()
+            val raw = file.readText()
+            DefaultJson.decodeFromString<List<ChatFolder>>(raw)
+                .map { folder ->
+                    folder.copy(members = folder.members.filter { it.isNotBlank() })
+                }
+                .filter { isFolderId(it.id) && it.name.isNotBlank() }
         }.onFailure {
-            WeLogger.w(TAG, "failed to decode folders config", it)
+            WeLogger.w(TAG, "failed to decode folders config from $foldersFile", it)
         }.getOrDefault(emptyList())
+        foldersCache = folders
+        return folders
     }
 
     private fun saveFolders(folders: List<ChatFolder>) {
-        val array = JSONArray()
-        folders.forEach { folder ->
-            array.put(
-                JSONObject().apply {
-                    put("id", folder.id)
-                    put("name", folder.name)
-                    put("members", JSONArray(folder.members))
-                }
-            )
+        foldersCache = folders
+        folderMembersCache.clear()
+        runCatching {
+            val raw = DefaultJson.encodeToString(folders)
+            foldersFile.writeText(raw)
+        }.onFailure {
+            WeLogger.w(TAG, "failed to save folders to $foldersFile", it)
         }
-        this.folders = array.toString()
     }
 
     private fun folderById(folderId: String): ChatFolder? {
@@ -893,10 +1064,21 @@ object AggregateChats : ClickableFeature(),
     private fun isFolderId(value: String): Boolean = value.startsWith(FOLDER_PREFIX)
 
 
+    enum class FolderType {
+        MANUAL,
+        PRESET_GROUPS,
+        PRESET_OFFICIALS,
+        SQL
+    }
+
+    @Serializable
     private data class ChatFolder(
-        val id: String,
-        val name: String,
-        val members: List<String>
+        val id: String = "",
+        val name: String = "",
+        val members: List<String> = emptyList(),
+        val type: FolderType = FolderType.MANUAL,
+        val selectFields: String = "",
+        val whereClause: String = ""
     )
 
     private data class FolderSummary(

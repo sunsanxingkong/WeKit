@@ -71,6 +71,8 @@ object WeDatabaseApi : ApiFeature(), IResolveDex {
 
     lateinit var db: SQLiteDatabase
 
+    val isReady: Boolean get() = ::db.isInitialized
+
     private val TAG = This.Class.simpleName
 
     val coreStorage by lazy {

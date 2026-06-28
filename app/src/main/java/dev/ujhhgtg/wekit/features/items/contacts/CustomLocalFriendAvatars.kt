@@ -212,6 +212,9 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
     @Volatile
     private var avatarMapCache: Map<String, String>? = null
 
+    @Volatile
+    var fallbackUsernameProvider: ((String) -> String?)? = null
+
     private val roundedBitmapCache = ConcurrentHashMap<String, Bitmap>()
     private val originalBitmapCache = ConcurrentHashMap<String, Bitmap>()
     private val boundAvatarViews = Collections.synchronizedMap(WeakHashMap<ImageView, BoundAvatar>())
@@ -246,7 +249,16 @@ object CustomLocalFriendAvatars : ClickableFeature(), IContactInfoProvider, IRes
             methodPluginsdkLoadAvatar
         ).forEach { it.method.hookBefore {
             val imageView = args.getOrNull(0) as? ImageView ?: return@hookBefore
+//            var wxId = args.getOrNull(1) as? String ?: return@hookBefore
             val wxId = args.getOrNull(1) as? String ?: return@hookBefore
+
+            val redirectedId = fallbackUsernameProvider?.invoke(wxId)
+            if (redirectedId != null) {
+//                wxId = redirectedId
+                args[1] = redirectedId
+                return@hookBefore
+            }
+
             if (applyCustomAvatar(imageView, wxId, roundAvatarRadiusFactor)) {
                 result = null
             }
