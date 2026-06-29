@@ -10,10 +10,11 @@ import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import androidx.annotation.RequiresApi
 import androidx.compose.material3.Text
-import dev.ujhhgtg.reflekt.utils.createInstance
 import com.tencent.mm.ui.LauncherUI
 import com.tencent.mm.ui.chatting.ChattingUIFragment
 import dev.ujhhgtg.comptime.This
+import dev.ujhhgtg.reflekt.reflekt
+import dev.ujhhgtg.reflekt.utils.createInstance
 import dev.ujhhgtg.wekit.constants.PackageNames
 import dev.ujhhgtg.wekit.dexkit.abc.IResolveDex
 import dev.ujhhgtg.wekit.dexkit.dsl.dexClass
@@ -24,7 +25,6 @@ import dev.ujhhgtg.wekit.ui.content.AlertDialogContent
 import dev.ujhhgtg.wekit.ui.content.Button
 import dev.ujhhgtg.wekit.ui.utils.showComposeDialog
 import dev.ujhhgtg.wekit.utils.WeLogger
-import dev.ujhhgtg.reflekt.reflekt
 
 // https://github.com/Ujhhgtg/PandorasBox
 @Feature(name = "预见性返回动画", categories = ["系统与隐私"], description = "为微信的活动强制启用预见性返回动画 [需 SDK >= 33]")
@@ -89,8 +89,6 @@ object PredictiveBackGestures : ClickableFeature(), IResolveDex {
         // FIXME: both of them breaks back gesture for media preview UI
         //        finish() makes back gestures first passthrough to ChattingUIFragment then to LauncherUI
         //        doPause() makes back gestures always passthrough to LauncherUI
-//        ChattingUIFragment::class.resolve()
-//            .firstMethod { name = "finish" }
         methodChattingUIFragmentDoPause
             .hookAfter {
                 val activity = thisObject.reflekt()
@@ -133,8 +131,8 @@ object PredictiveBackGestures : ClickableFeature(), IResolveDex {
     private fun applyFlag(info: ActivityInfo) {
         val field = info.reflekt().firstField { name = "privateFlags" }
         var flags = field.get() as Int
-        flags = flags or (PRIVATE_FLAG_ENABLE_ON_BACK_INVOKED_CALLBACK)
-        flags = flags and (PRIVATE_FLAG_DISABLE_ON_BACK_INVOKED_CALLBACK).inv()
+        flags = flags or PRIVATE_FLAG_ENABLE_ON_BACK_INVOKED_CALLBACK
+        flags = flags and PRIVATE_FLAG_DISABLE_ON_BACK_INVOKED_CALLBACK.inv()
         field.set(flags)
     }
 

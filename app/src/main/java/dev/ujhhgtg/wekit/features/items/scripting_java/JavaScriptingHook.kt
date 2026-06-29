@@ -50,7 +50,7 @@ object JavaScriptingHook : SwitchFeature(), IResolveDex, WeDatabaseListenerApi.I
     override fun onEnable() {
         WeDatabaseListenerApi.addListener(this)
 
-        WeMessageApi.methodMsgInfoStorageInsertMessage.hookAfter {
+        WeMessageApi.methodMsgInfoHandleApiInsertMessage.hookAfter {
             val msgObj = args[0] ?: return@hookAfter
             val msgBean = MsgInfoBean(msgObj)
             JavaEngine.executeAllOnHandleMsg(scripts, msgBean)
@@ -74,6 +74,11 @@ object JavaScriptingHook : SwitchFeature(), IResolveDex, WeDatabaseListenerApi.I
             WeLogger.d(TAG, "loading java scripts...")
             for (scriptDir in SCRIPTS_DIR.listDirectoryEntries().filter { it.isDirectory() }) {
                 val dirName = scriptDir.name
+                if (dirName.endsWith(".disabled")) {
+                    WeLogger.d(TAG, "skipping '$dirName': disabled")
+                    continue
+                }
+
                 val mainFile = scriptDir / "main.java"
                 val infoFile = scriptDir / "info.prop"
                 if (!mainFile.exists() || !infoFile.exists()) {

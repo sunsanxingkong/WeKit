@@ -63,6 +63,9 @@ import java.util.function.Function
 import kotlin.concurrent.thread
 import kotlin.io.path.absolutePathString
 import kotlin.io.path.deleteExisting
+import kotlin.io.path.div
+import kotlin.io.path.exists
+import kotlin.io.path.nameWithoutExtension
 
 object JavaEngine {
 
@@ -493,13 +496,19 @@ object JavaEngine {
             setMethod(BshMethod(
                 "loadJava", arrayOf(BString)
             ) {
-                val path = it[0] as String
-                val resolved = if (File(path).isAbsolute) {
-                    File(path).canonicalPath
+                val path = plugin.dir / it[0] as String
+                val absPath = if (path.exists()) {
+                    path.absolutePathString()
                 } else {
-                    plugin.dir.resolve(path).toFile().canonicalPath
+                    val withExt = path.parent / "${path.nameWithoutExtension}.java"
+                    if (withExt.exists()) {
+                        withExt.absolutePathString()
+                    } else {
+                        WeLogger.e(TAG, "failed to load java; ${path.absolutePathString()} and ${withExt.absolutePathString()} does not exist")
+                        return@BshMethod null
+                    }
                 }
-                plugin.interpreter.source(resolved)
+                plugin.interpreter.source(absPath)
             })
 
             // loadJar(path) — adds a JAR to the interpreter's classloader

@@ -179,6 +179,12 @@ object WeMessageApi : ApiFeature(), IResolveDex {
             usingEqStrings("MicroMsg.MsgInfoStorage", "deleted dirty msg ,count is %d")
         }
     }
+    val methodMsgInfoHandleApiInsertMessage by dexMethod {
+        searchPackages("com.tencent.mm.storage")
+        matcher {
+            usingEqStrings("MicroMsg.MsgInfoStorage", "protect:c2c msg should not here")
+        }
+    }
     val methodMsgInfoStorageInsertMessage by dexMethod {
         matcher {
             declaredClass(classMsgInfoStorage.clazz)

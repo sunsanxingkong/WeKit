@@ -1,6 +1,7 @@
 package com.tencent.mm.ui;
 
 import android.app.Activity;
+import android.graphics.drawable.Drawable;
 import android.view.MenuItem;
 import android.view.View;
 
@@ -33,6 +34,10 @@ public class MMFragment {
     }
 
     public void addTextOptionMenu(int i17, String str, MenuItem.OnMenuItemClickListener onMenuItemClickListener, View.OnLongClickListener onLongClickListener) {
+        throw new RuntimeException("Stub!");
+    }
+
+    public void addIconOptionMenu(int i17, String str, Drawable drawable, MenuItem.OnMenuItemClickListener onMenuItemClickListener) {
         throw new RuntimeException("Stub!");
     }
 }
