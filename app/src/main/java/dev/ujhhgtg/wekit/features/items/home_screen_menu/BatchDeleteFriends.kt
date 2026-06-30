@@ -137,8 +137,8 @@ object BatchDeleteFriends : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItems
                                 LazyColumn(Modifier.weight(1f)) {
                                     items(flist, { it.wxId }) { f ->
                                         ListItem(
-                                            headlineContent = { Text(f.displayName.ifEmpty { f.nickname }, 14.sp) },
-                                            supportingContent = { Text(f.wxId, 11.sp, Color.Gray) },
+                                            headlineContent = { Text(f.displayName.ifEmpty { f.nickname }, fontSize = 14.sp) },
+                                            supportingContent = { Text(f.wxId, fontSize = 11.sp, color = Color.Gray) },
                                             leadingContent = {
                                                 Checkbox(f.wxId in sel, { c -> if (c) sel.add(f.wxId) else sel.remove(f.wxId) }, colors = CheckboxDefaults.colors())
                                             }
@@ -197,7 +197,7 @@ object BatchDeleteFriends : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItems
                                 LinearProgressIndicator({ if (p.total > 0) p.done.toFloat() / p.total else 0f }, Modifier.fillMaxWidth())
                                 if (p.failed.isNotEmpty()) {
                                     Spacer(Modifier.height(8.dp))
-                                    Text("失败: ${p.failed.size} 个", Color.Red, 12.sp)
+                                    Text("失败: ${p.failed.size} 个", color = Color.Red, fontSize = 12.sp)
                                 }
                             }
                         },
