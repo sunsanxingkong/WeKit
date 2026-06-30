@@ -39,7 +39,6 @@ import androidx.compose.ui.unit.sp
 import de.robv.android.xposed.XC_MethodHook
 import dev.ujhhgtg.comptime.nameOf
 import dev.ujhhgtg.reflekt.reflekt
-import dev.ujhhgtg.wekit.dexkit.abc.IResolveDex
 import dev.ujhhgtg.wekit.features.api.core.WeDatabaseApi
 import dev.ujhhgtg.wekit.features.api.core.WeDatabaseApi.WeContact
 import dev.ujhhgtg.wekit.features.api.core.WeMessageApi
@@ -64,7 +63,7 @@ import kotlinx.coroutines.launch
     categories = ["聊天"],
     description = "屏蔽指定群成员的所有消息（文字/图片/红包/接龙等），连按两次头像快速屏蔽"
 )
-object BlockGroupMemberMessages : SwitchFeature(), IResolveDex {
+object BlockGroupMemberMessages : SwitchFeature() {
     private val TAG = nameOf(BlockGroupMemberMessages::class)
 
     // Store blocked members per group: "blocked_members_{groupId}" -> Set<String> of wxIds
