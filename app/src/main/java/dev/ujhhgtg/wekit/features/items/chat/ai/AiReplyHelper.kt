@@ -4,7 +4,7 @@ import android.content.Context
 import android.widget.Toast
 import dev.ujhhgtg.comptime.nameOf
 import dev.ujhhgtg.wekit.features.api.core.WeDatabaseApi
-import dev.ujhhgtg.wekit.features.api.core.WeDatabaseApi.WeMessage
+import dev.ujhhgtg.wekit.features.api.core.models.WeMessage
 import dev.ujhhgtg.wekit.features.api.core.WeMessageApi
 import dev.ujhhgtg.wekit.features.api.ui.WeCurrentConversationApi
 import dev.ujhhgtg.wekit.preferences.WePrefs

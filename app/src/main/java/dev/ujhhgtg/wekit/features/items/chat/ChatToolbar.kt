@@ -62,7 +62,6 @@ import com.composables.icons.materialsymbols.outlined.Arrow_downward
 import com.composables.icons.materialsymbols.outlined.Arrow_upward
 import com.composables.icons.materialsymbols.outlined.Attach_file
 import com.composables.icons.materialsymbols.outlined.Attach_money
-import com.composables.icons.materialsymbols.outlined.AutoAwesome
 import com.composables.icons.materialsymbols.outlined.Camera
 import com.composables.icons.materialsymbols.outlined.Favorite
 import com.composables.icons.materialsymbols.outlined.Format_list_numbered
@@ -288,7 +287,7 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
                             ) {
                                 items(sortedVisibleItems, key = { it.first }) { (name, onClick) ->
                                     val icon = when (name) {
-                                        AI_REPLY_KEY -> MaterialSymbols.Outlined.AutoAwesome
+                                        AI_REPLY_KEY -> MaterialSymbols.Outlined.Favorite
                                         AI_SETTINGS_KEY -> MaterialSymbols.Outlined.Settings
                                         else -> NAME_TO_ICON_MAP[name]!!
                                     }
@@ -322,7 +321,7 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
                     LazyColumn(modifier = Modifier.size(height = 400.dp, width = 300.dp)) {
                         itemsIndexed(currentOrder) { index, name ->
                             val icon = when (name) {
-                                AI_REPLY_KEY -> MaterialSymbols.Outlined.AutoAwesome
+                                AI_REPLY_KEY -> MaterialSymbols.Outlined.Favorite
                                 AI_SETTINGS_KEY -> MaterialSymbols.Outlined.Settings
                                 else -> NAME_TO_ICON_MAP[name]
                             }
