@@ -153,6 +153,9 @@ object BatchQuitGroups : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItemsPro
                         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
                     )
                 }
+                is Phase.Selecting -> {
+                    Text("选择群聊中...")
+                }
                 is Phase.Confirming -> {
                     val cp = current
                     val msgs = listOf(

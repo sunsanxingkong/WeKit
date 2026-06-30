@@ -256,7 +256,7 @@ object AutoForwardMoments : ClickableFeature() {
                         }
                         Spacer(Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("运行状态: ", 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text("运行状态: ", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                             Text(if (running) "🟢 运行中" else "🔴 已停止", 14.sp)
                         }
                     }
