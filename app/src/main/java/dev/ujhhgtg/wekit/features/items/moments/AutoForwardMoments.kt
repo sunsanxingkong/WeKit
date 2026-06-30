@@ -2,38 +2,15 @@ package dev.ujhhgtg.wekit.features.items.moments
 
 import android.content.Context
 import android.widget.Toast
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Text
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.ujhhgtg.comptime.This
@@ -56,9 +33,7 @@ import kotlinx.coroutines.launch
 
 /**
  * 自动转发朋友圈
- *
- * 实现方案：用 WeDatabaseApi 直接 SQL 查询 SnsInfo 表，
- * 通过关键词匹配好友内容后自动转发
+ * 配置好友 + 关键词，后台定时扫描 SnsInfo 表
  */
 @Feature(
     name = "自动转发朋友圈",
@@ -69,7 +44,6 @@ object AutoForwardMoments : ClickableFeature() {
     override val noSwitchWidget = true
     private val TAG = This.Class.simpleName
 
-    // ── 配置项 ──
     private var targetWxIds by WePrefs.prefOption("auto_fwd_moments_targets", "")
     private var keywords by WePrefs.prefOption("auto_fwd_moments_keywords", "")
     private var detectIntervalSec by WePrefs.prefOption("auto_fwd_moments_interval", 30)
@@ -77,42 +51,33 @@ object AutoForwardMoments : ClickableFeature() {
     private var startHour by WePrefs.prefOption("auto_fwd_moments_start_hr", 1)
     private var endHour by WePrefs.prefOption("auto_fwd_moments_end_hr", 23)
 
-    // ── 运行时状态 ──
     private var monitoringJob: Job? = null
-    private val forwardedSet = mutableSetOf<String>()
     private var isRunning by mutableStateOf(false)
     private var lastMaxRowId = 0L
+    private val forwardedSet = mutableSetOf<String>()
 
-    private fun getTargetList(): List<String> =
-        targetWxIds.split(",").filter { it.isNotBlank() }
+    private fun getTargetList(): List<String> = targetWxIds.split(",").filter { it.isNotBlank() }
 
     override fun onEnable() {
-        if (getTargetList().isNotEmpty() && keywords.isNotBlank()) {
-            startMonitoring()
-        }
+        if (getTargetList().isNotEmpty() && keywords.isNotBlank()) { startMonitor() }
     }
+    override fun onDisable() { stopMonitor() }
 
-    override fun onDisable() {
-        stopMonitoring()
-    }
-
-    private fun startMonitoring() {
+    private fun startMonitor() {
         if (monitoringJob?.isActive == true) return
         isRunning = true
-        forwardedSet.clear()
         lastMaxRowId = 0L
         monitoringJob = CoroutineScope(Dispatchers.IO).launch {
-            WeLogger.i(TAG, "auto-forward monitoring started")
             while (isActive) {
                 try {
-                    if (isInTimeWindow()) scanAndForward()
-                } catch (_: Exception) { WeLogger.w(TAG, "scan err: ${_.message}") }
+                    if (isInTimeWindow()) checkAndForward()
+                } catch (_: Exception) { }
                 delay(detectIntervalSec * 1000L)
             }
         }
     }
 
-    private fun stopMonitoring() {
+    private fun stopMonitor() {
         monitoringJob?.cancel()
         monitoringJob = null
         isRunning = false
@@ -122,59 +87,39 @@ object AutoForwardMoments : ClickableFeature() {
         if (timeMode == 0) return true
         val cal = java.util.Calendar.getInstance()
         val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
-        return if (startHour <= endHour) hour in startHour until endHour
-        else hour >= startHour || hour < endHour
+        return if (startHour <= endHour) hour in startHour until endHour else hour >= startHour || hour < endHour
     }
 
-    /**
-     * 核心扫描 —— 直接用 SQL 查 SnsInfo 表
-     */
-    private fun scanAndForward() {
+    private fun checkAndForward() {
         val targets = getTargetList()
         val kwList = keywords.split(",", "，").map { it.trim() }.filter { it.isNotEmpty() }
         if (targets.isEmpty() || kwList.isEmpty()) return
 
-        val sql = """
-            SELECT rowid, snsId, userName, content, createTime
-            FROM SnsInfo
-            WHERE rowid > $lastMaxRowId
-            ORDER BY rowid ASC
-            LIMIT 100
-        """.trimIndent()
-
+        // 直接查 SnsInfo 表（微信朋友圈本地 SQLite 表）
+        val sql = "SELECT rowid, snsId, userName, content FROM SnsInfo WHERE rowid > $lastMaxRowId ORDER BY rowid ASC LIMIT 50"
         val rows = WeDatabaseApi.executeQuery(sql)
         if (rows.isEmpty()) return
-
-        val maxRowId = rows.maxOfOrNull {
-            (it["rowid"] as? Number)?.toLong() ?: 0L
-        } ?: return
-        lastMaxRowId = maxRowId
+        val newMax = rows.maxOfOrNull { (it["rowid"] as? Number)?.toLong() ?: 0L } ?: return
+        lastMaxRowId = newMax
 
         for (row in rows) {
             try {
-                val snsId = (row["snsId"] as? Number)?.toLong() ?: continue
                 val userName = row["userName"] as? String ?: continue
-                val contentBlob = row["content"] as? ByteArray ?: continue
-
+                val content = row["content"] as? ByteArray ?: continue
                 if (userName !in targets) continue
-
                 val contentText = try {
-                    kotlinx.serialization.protobuf.ProtoBuf
-                        .decodeFromByteArray<dev.ujhhgtg.wekit.features.api.net.models.protobuf.TimelineObjectProto>(contentBlob)
-                        .contentDesc
+                    String(content, Charsets.UTF_8).substringBefore("\u0000")
                 } catch (_: Exception) { null }
                 if (contentText.isNullOrBlank()) continue
-
-                val dedupKey = "$userName:$contentText"
-                if (dedupKey in forwardedSet) continue
-
+                val dedup = "$userName:$contentText"
+                if (dedup in forwardedSet) continue
                 if (!kwList.any { contentText.contains(it, ignoreCase = true) }) continue
 
                 WeLogger.i(TAG, "matched! $userName: ${contentText.take(60)}")
-                if (WeMomentsApi.uploadText(contentText)) {
-                    forwardedSet.add(dedupKey)
-                    if (forwardedSet.size > 500) forwardedSet.removeAll(forwardedSet.take(250).toSet())
-                }
+                forwardedSet.add(dedup)
+                if (forwardedSet.size > 500) forwardedSet.removeAll(forwardedSet.take(250).toSet())
+                // 转发（用 WeMomentsApi.uploadText）
+                WeMomentsApi.uploadText(contentText)
             } catch (_: Exception) { }
         }
     }
@@ -182,21 +127,15 @@ object AutoForwardMoments : ClickableFeature() {
     override fun onClick(context: Context) {
         showComposeDialog(context) {
             val friends = remember { WeDatabaseApi.getFriends() }
-            val saved = remember { AutoForwardMoments.targetWxIds }
-            val selected = remember {
-                mutableStateListOf<String>().apply {
-                    addAll(saved.split(",").filter { it.isNotBlank() })
-                }
-            }
-            var keywordsStr by remember { mutableStateOf(AutoForwardMoments.keywords) }
-            var interval by remember { mutableIntStateOf(AutoForwardMoments.detectIntervalSec) }
-            var mode by remember { mutableIntStateOf(AutoForwardMoments.timeMode) }
-            var sHour by remember { mutableIntStateOf(AutoForwardMoments.startHour) }
-            var eHour by remember { mutableIntStateOf(AutoForwardMoments.endHour) }
-            var running by remember { mutableStateOf(AutoForwardMoments.isRunning) }
-            var showFriendPicker by remember { mutableStateOf(false) }
+            val selected = remember { mutableStateListOf<String>().apply { addAll(targetWxIds.split(",").filter { it.isNotBlank() }) } }
+            var keywordsStr by remember { mutableStateOf(keywords) }
+            var interval by remember { mutableIntStateOf(detectIntervalSec) }
+            var mode by remember { mutableIntStateOf(timeMode) }
+            var sHour by remember { mutableIntStateOf(startHour) }
+            var eHour by remember { mutableIntStateOf(endHour) }
+            var showPicker by remember { mutableStateOf(false) }
 
-            if (showFriendPicker) {
+            if (showPicker) {
                 AlertDialogContent(
                     title = { Text("选择监控好友", fontWeight = FontWeight.Bold) },
                     text = {
@@ -210,11 +149,10 @@ object AutoForwardMoments : ClickableFeature() {
                             LazyColumn(Modifier.weight(1f)) {
                                 items(friends, { it.wxId }) { f ->
                                     ListItem(
-                                        headlineContent = { Text(f.nickname, fontSize = 14.sp) },
+                                        headlineContent = { Text(f.displayName.ifEmpty { f.nickname }, fontSize = 14.sp) },
                                         supportingContent = { Text(f.wxId, fontSize = 11.sp, color = Color.Gray) },
                                         leadingContent = {
-                                            Checkbox(
-                                                checked = f.wxId in selected,
+                                            Checkbox(checked = f.wxId in selected,
                                                 onCheckedChange = { c -> if (c) selected.add(f.wxId) else selected.remove(f.wxId) },
                                                 colors = CheckboxDefaults.colors()
                                             )
@@ -222,10 +160,9 @@ object AutoForwardMoments : ClickableFeature() {
                                     )
                                 }
                             }
+                            Button(onClick = { showPicker = false }) { Text("确定", fontSize = 13.sp) }
                         }
-                    },
-                    confirmButton = { Button(onClick = { showFriendPicker = false }) { Text("确定", fontSize = 14.sp) } },
-                    dismissButton = { TextButton(onClick = { showFriendPicker = false }) { Text("取消", fontSize = 14.sp) } }
+                    }
                 )
             } else {
                 AlertDialogContent(
@@ -233,7 +170,7 @@ object AutoForwardMoments : ClickableFeature() {
                     text = {
                         Column(Modifier.size(360.dp, 460.dp).verticalScroll(rememberScrollState())) {
                             Text("监控好友（${selected.size}人）", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            Button(onClick = { showFriendPicker = true }) { Text("选择好友...", fontSize = 13.sp) }
+                            Button(onClick = { showPicker = true }) { Text("选择好友...", fontSize = 13.sp) }
                             if (selected.isNotEmpty()) Text(selected.take(3).joinToString(", "), fontSize = 11.sp, color = Color.Gray, maxLines = 1)
                             Spacer(Modifier.height(12.dp))
                             Text("关键词", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
@@ -251,31 +188,31 @@ object AutoForwardMoments : ClickableFeature() {
                             if (mode == 1) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     OutlinedTextField(value = sHour.toString(), onValueChange = { it.toIntOrNull()?.let { sHour = it.coerceIn(0, 23) } }, label = { Text("起始时") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.width(72.dp))
-                                    Spacer(Modifier.width(4.dp))
                                     Text("~", fontSize = 14.sp)
-                                    Spacer(Modifier.width(4.dp))
                                     OutlinedTextField(value = eHour.toString(), onValueChange = { it.toIntOrNull()?.let { eHour = it.coerceIn(0, 23) } }, label = { Text("结束时") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.width(72.dp))
                                 }
                             }
                             Spacer(Modifier.height(12.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text("运行状态: ", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                Text(if (running) "🟢 运行中" else "🔴 已停止", fontSize = 14.sp, color = if (running) Color(0xFF4CAF50) else Color(0xFFF44336))
+                                Text(if (isRunning) "🟢 运行中" else "🔴 已停止", fontSize = 14.sp, color = if (isRunning) Color(0xFF4CAF50) else Color(0xFFF44336))
                             }
                         }
                     },
-                    confirmButton = { Button(onClick = {
-                        AutoForwardMoments.targetWxIds = selected.joinToString(",")
-                        AutoForwardMoments.keywords = keywordsStr
-                        AutoForwardMoments.detectIntervalSec = interval
-                        AutoForwardMoments.timeMode = mode
-                        AutoForwardMoments.startHour = sHour
-                        AutoForwardMoments.endHour = eHour
-                        AutoForwardMoments.stopMonitoring()
-                        if (selected.isNotEmpty() && keywordsStr.isNotBlank()) AutoForwardMoments.startMonitoring()
-                        running = AutoForwardMoments.isRunning
-                        Toast.makeText(context, if (running) "开始监控" else "请配置", Toast.LENGTH_SHORT).show()
-                    }) { Text("保存并启动", fontSize = 14.sp) } },
+                    confirmButton = {
+                        Button(onClick = {
+                            targetWxIds = selected.joinToString(",")
+                            keywords = keywordsStr
+                            detectIntervalSec = interval
+                            timeMode = mode
+                            startHour = sHour
+                            endHour = eHour
+                            stopMonitor()
+                            if (selected.isNotEmpty() && keywordsStr.isNotBlank()) startMonitor()
+                            isRunning = monitoringJob?.isActive == true
+                            Toast.makeText(context, if (isRunning) "✅ 已启动" else "配置保存", Toast.LENGTH_SHORT).show()
+                        }) { Text("保存并启动", fontSize = 14.sp) }
+                    },
                     dismissButton = { TextButton(onClick = onDismiss) { Text("关闭", fontSize = 14.sp) } }
                 )
             }
