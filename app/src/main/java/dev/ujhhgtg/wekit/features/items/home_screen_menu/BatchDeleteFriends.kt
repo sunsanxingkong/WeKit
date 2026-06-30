@@ -55,7 +55,7 @@ object BatchDeleteFriends : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItems
                     val sel = remember { mutableStateListOf<String>() }
                     var mode by remember { mutableIntStateOf(deleteMode) }
                     var interval by remember { mutableIntStateOf(deleteInterval) }
-                    var phase by remember { mutableIntStateOf(0) } // 0=选择, 1=确认, 2=执行中, 3=完成
+                    var phase by remember { mutableIntStateOf(0) }
 
                     AlertDialogContent(
                         title = { Text("批量删除好友", fontWeight = FontWeight.Bold) },
@@ -64,9 +64,11 @@ object BatchDeleteFriends : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItems
                                 0 -> {
                                     Column(Modifier.size(340.dp, 440.dp)) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
-                                            RadioButton(selected = mode == 0, onClick = { mode = 0 }) { Text("仅删除", fontSize = 13.sp) }
+                                            RadioButton(selected = mode == 0, onClick = { mode = 0 })
+                                            Text("仅删除", fontSize = 13.sp)
                                             Spacer(Modifier.width(12.dp))
-                                            RadioButton(selected = mode == 1, onClick = { mode = 1 }) { Text("拉黑+删除", fontSize = 13.sp) }
+                                            RadioButton(selected = mode == 1, onClick = { mode = 1 })
+                                            Text("拉黑+删除", fontSize = 13.sp)
                                         }
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Text("间隔: ${interval}ms", fontSize = 13.sp)
@@ -97,20 +99,21 @@ object BatchDeleteFriends : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItems
                                             Button(onClick = {
                                                 deleteMode = mode; deleteInterval = interval
                                                 phase = 1
-                                            }) { Text("下一步 →", fontSize = 13.sp) }
+                                            }) { Text("下一步", fontSize = 13.sp) }
                                         }
                                     }
                                 }
                                 1 -> {
                                     val msgs = listOf(
-                                        "⚠️ 第一确认：即将删除 ${sel.size} 位好友",
-                                        "⚠️ 第二确认：操作不可逆！",
-                                        "⚠️ 最终确认：即将执行"
+                                        "第一次确认：即将删除 ${sel.size} 位好友",
+                                        "第二次确认：操作不可逆！",
+                                        "最终确认：即将执行"
                                     )
                                     var confirmStep by remember { mutableIntStateOf(1) }
                                     Column {
                                         Text(msgs.getOrElse(confirmStep - 1) { "" })
-                                        Row(Modifier.fillMaxWidth(), Arrangement.SpaceEnd) {
+                                        Spacer(Modifier.height(8.dp))
+                                        Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
                                             Button(onClick = {
                                                 if (confirmStep >= 3) {
                                                     phase = 2
@@ -124,7 +127,8 @@ object BatchDeleteFriends : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItems
                                 }
                                 2 -> {
                                     Column {
-                                        Text("执行中... ${0}/${sel.size}")
+                                        Text("执行中...")
+                                        Spacer(Modifier.height(8.dp))
                                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                                     }
                                 }
@@ -135,11 +139,11 @@ object BatchDeleteFriends : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItems
                                     }
                                     Button(onClick = onDismiss) { Text("关闭", fontSize = 13.sp) }
                                 }
-                                else -> { Text("未知状态") }
+                                else -> {
+                                    Text("状态错误")
+                                }
                             }
-                        },
-                        confirmButton = { Button(onClick = { phase = 1 }) { Text("确定", fontSize = 13.sp) } },
-                        dismissButton = { TextButton(onClick = { phase = 0 }) { Text("取消", fontSize = 13.sp) } }
+                        }
                     )
                 }
             }
@@ -148,7 +152,6 @@ object BatchDeleteFriends : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItems
 
     private fun startDeletion(ctx: Context, targets: List<WeContact>, mode: Int, intervalMs: Int, fails: MutableList<String>) {
         CoroutineScope(Dispatchers.IO).launch {
-            var done = 0
             for (t in targets) {
                 try {
                     val body = if (mode == 0) """{"2":"${t.wxId}","4":1}""" else """{"2":"${t.wxId}","4":3}"""
@@ -162,7 +165,6 @@ object BatchDeleteFriends : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItems
                     WeLogger.e(TAG, "delete ${t.wxId} failed", e)
                     fails.add(t.displayName.ifEmpty { t.wxId })
                 }
-                done++
                 delay(intervalMs.toLong())
             }
         }

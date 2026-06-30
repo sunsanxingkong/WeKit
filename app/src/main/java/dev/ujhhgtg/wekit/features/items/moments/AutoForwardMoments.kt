@@ -5,12 +5,16 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.ujhhgtg.comptime.This
@@ -31,10 +35,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-/**
- * 自动转发朋友圈
- * 配置好友 + 关键词，后台定时扫描 SnsInfo 表
- */
 @Feature(
     name = "自动转发朋友圈",
     categories = ["朋友圈"],
@@ -59,7 +59,7 @@ object AutoForwardMoments : ClickableFeature() {
     private fun getTargetList(): List<String> = targetWxIds.split(",").filter { it.isNotBlank() }
 
     override fun onEnable() {
-        if (getTargetList().isNotEmpty() && keywords.isNotBlank()) { startMonitor() }
+        if (getTargetList().isNotEmpty() && keywords.isNotBlank()) startMonitor()
     }
     override fun onDisable() { stopMonitor() }
 
@@ -69,18 +69,14 @@ object AutoForwardMoments : ClickableFeature() {
         lastMaxRowId = 0L
         monitoringJob = CoroutineScope(Dispatchers.IO).launch {
             while (isActive) {
-                try {
-                    if (isInTimeWindow()) checkAndForward()
-                } catch (_: Exception) { }
+                try { if (isInTimeWindow()) checkAndForward() } catch (_: Exception) { }
                 delay(detectIntervalSec * 1000L)
             }
         }
     }
 
     private fun stopMonitor() {
-        monitoringJob?.cancel()
-        monitoringJob = null
-        isRunning = false
+        monitoringJob?.cancel(); monitoringJob = null; isRunning = false
     }
 
     private fun isInTimeWindow(): Boolean {
@@ -94,31 +90,24 @@ object AutoForwardMoments : ClickableFeature() {
         val targets = getTargetList()
         val kwList = keywords.split(",", "，").map { it.trim() }.filter { it.isNotEmpty() }
         if (targets.isEmpty() || kwList.isEmpty()) return
-
-        // 直接查 SnsInfo 表（微信朋友圈本地 SQLite 表）
         val sql = "SELECT rowid, snsId, userName, content FROM SnsInfo WHERE rowid > $lastMaxRowId ORDER BY rowid ASC LIMIT 50"
         val rows = WeDatabaseApi.executeQuery(sql)
         if (rows.isEmpty()) return
         val newMax = rows.maxOfOrNull { (it["rowid"] as? Number)?.toLong() ?: 0L } ?: return
         lastMaxRowId = newMax
-
         for (row in rows) {
             try {
                 val userName = row["userName"] as? String ?: continue
                 val content = row["content"] as? ByteArray ?: continue
                 if (userName !in targets) continue
-                val contentText = try {
-                    String(content, Charsets.UTF_8).substringBefore("\u0000")
-                } catch (_: Exception) { null }
+                val contentText = try { String(content, Charsets.UTF_8).substringBefore("\u0000") } catch (_: Exception) { null }
                 if (contentText.isNullOrBlank()) continue
                 val dedup = "$userName:$contentText"
                 if (dedup in forwardedSet) continue
                 if (!kwList.any { contentText.contains(it, ignoreCase = true) }) continue
-
                 WeLogger.i(TAG, "matched! $userName: ${contentText.take(60)}")
                 forwardedSet.add(dedup)
                 if (forwardedSet.size > 500) forwardedSet.removeAll(forwardedSet.take(250).toSet())
-                // 转发（用 WeMomentsApi.uploadText）
                 WeMomentsApi.uploadText(contentText)
             } catch (_: Exception) { }
         }
@@ -143,8 +132,8 @@ object AutoForwardMoments : ClickableFeature() {
                             Row(Modifier.fillMaxWidth(), Arrangement.SpaceEvenly) {
                                 TextButton(onClick = { selected.clear(); selected.addAll(friends.map { it.wxId }) }) { Text("全选", fontSize = 13.sp) }
                                 TextButton(onClick = { selected.clear() }) { Text("清空", fontSize = 13.sp) }
-                                Text("已选 ${selected.size}/${friends.size}", fontSize = 13.sp, color = Color.Gray)
                             }
+                            Text("已选 ${selected.size}/${friends.size}", fontSize = 12.sp, color = Color.Gray)
                             HorizontalDivider()
                             LazyColumn(Modifier.weight(1f)) {
                                 items(friends, { it.wxId }) { f ->
@@ -181,14 +170,18 @@ object AutoForwardMoments : ClickableFeature() {
                             Spacer(Modifier.height(12.dp))
                             Text("检测时间", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                RadioButton(selected = mode == 0, onClick = { mode = 0 }) { Text("全天", fontSize = 14.sp) }
+                                RadioButton(selected = mode == 0, onClick = { mode = 0 })
+                                Text("全天", fontSize = 14.sp)
                                 Spacer(Modifier.width(16.dp))
-                                RadioButton(selected = mode == 1, onClick = { mode = 1 }) { Text("仅时段", fontSize = 14.sp) }
+                                RadioButton(selected = mode == 1, onClick = { mode = 1 })
+                                Text("仅时段", fontSize = 14.sp)
                             }
                             if (mode == 1) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     OutlinedTextField(value = sHour.toString(), onValueChange = { it.toIntOrNull()?.let { sHour = it.coerceIn(0, 23) } }, label = { Text("起始时") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.width(72.dp))
+                                    Spacer(Modifier.width(4.dp))
                                     Text("~", fontSize = 14.sp)
+                                    Spacer(Modifier.width(4.dp))
                                     OutlinedTextField(value = eHour.toString(), onValueChange = { it.toIntOrNull()?.let { eHour = it.coerceIn(0, 23) } }, label = { Text("结束时") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.width(72.dp))
                                 }
                             }
