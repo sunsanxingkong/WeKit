@@ -161,18 +161,15 @@ object BatchDeleteFriends : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItems
                 }
                 is Phase.Confirming -> {
                     val msgs = listOf(
-                        "⚠️ 第一次确认
-
-即将批量删除 ${p.targets.size} 个好友，此操作不可逆！请确认已备份重要聊天记录。",
-                        "⚠️ 第二次确认
-
+                        """⚠️ 第一次确认
+即将批量删除 ${p.targets.size} 个好友，此操作不可逆！请确认已备份重要聊天记录。""".trimIndent(),
+                        """⚠️ 第二次确认
 确认执行吗？删除后聊天记录将被清除，需对方重新添加。
-当前模式：${if (p.mode == 0) "仅删除" else "拉黑+删除"}",
-                        "⚠️ 最终确认
-
+当前模式：${if (p.mode == 0) "仅删除" else "拉黑+删除"}""".trimIndent(),
+                        """⚠️ 最终确认
 这是最后一次确认！
 即将批量处理 ${p.targets.size} 个好友，操作间隔 ${deleteInterval}ms。
-执行后将无法撤销，是否继续？"
+执行后将无法撤销，是否继续？""".trimIndent()
                     )
                     val t = listOf("第一次确认", "第二次确认", "最终确认").getOrElse(p.step - 1) { "确认" }
                     AlertDialogContent(
