@@ -143,9 +143,12 @@ object BatchQuitGroups : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItemsPro
                             }
                         },
                         confirmButton = { Button(onClick = {
-                            if (sel.isEmpty()) { Toast.makeText(ctx, "请至少选一个群聊", 0).show(); return@onClick }
-                            quitInterval = interval
-                            phase.value = Phase.Confirming(glist.filter { it.wxId in sel }, 1)
+                            if (sel.isEmpty()) {
+                                Toast.makeText(ctx, "请至少选一个群聊", 0).show()
+                            } else {
+                                quitInterval = interval
+                                phase.value = Phase.Confirming(glist.filter { it.wxId in sel }, 1)
+                            }
                         }) { Text("下一步") } },
                         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
                     )

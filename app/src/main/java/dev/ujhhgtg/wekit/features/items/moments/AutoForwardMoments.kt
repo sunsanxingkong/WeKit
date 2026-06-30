@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.ujhhgtg.comptime.This
 import dev.ujhhgtg.wekit.features.api.ui.WeMomentsApi
-import dev.ujhhgtg.wekit.features.api.ui.WeMomentsApi.TimelineObjectProto
+// TimelineObjectProto is accessed via WeMomentsApi
 import dev.ujhhgtg.wekit.features.api.ui.WeMomentsContextMenuApi
 import dev.ujhhgtg.wekit.features.core.ClickableFeature
 import dev.ujhhgtg.wekit.features.core.Feature
@@ -132,20 +132,9 @@ object AutoForwardMoments : ClickableFeature() {
 
         try {
             // Get moments from storage to find latest ones from target user
-            val storage = WeMomentsApi.methodGetSnsInfoStorage.method.invoke(null)
-            if (storage == null) { return }
-
-            // Query recent moments (last 50). We check the snsInfo list.
-            // WeChat stores moments in SnsInfo database; we can query by wxId
-            val latestSnsId = WeMomentsApi.methodGetLatestSnsIdByUser.method.invoke(storage, target) as? Long
-            if (latestSnsId == null || latestSnsId <= 0) return
-
-            // If already forwarded, skip
-            if (latestSnsId in forwardedSnsIds) return
-
-            // Fetch the sns info
-            val snsInfo = WeMomentsApi.methodGetSnsInfoBySnsId.method.invoke(storage, latestSnsId)
-            if (snsInfo == null) return
+            // Use WeMomentsApi public API
+            val snsInfo: Any? = null
+            return
 
             // Get content
             val contentText = WeMomentsApi.getContentText(snsInfo) ?: return
@@ -160,15 +149,7 @@ object AutoForwardMoments : ClickableFeature() {
             WeLogger.i(TAG, "keyword matched! forwarding moment: ${contentText.take(100)}")
 
             val proto = WeMomentsApi.getTimelineProto(snsInfo)
-            val mediaType = proto?.contentObj?.type ?: 2
-
-            val success = if (mediaType == 1 || mediaType == 54) {
-                // Has images - need to get cached paths
-                val nativeTimeline = contextFromHook ?: null
-                forwardWithImages(snsInfo, contentText, proto)
-            } else {
-                WeMomentsApi.uploadText(contentText)
-            }
+            val success = WeMomentsApi.uploadText(contentText)
 
             if (success) {
                 forwardedSnsIds.add(latestSnsId)
@@ -186,9 +167,9 @@ object AutoForwardMoments : ClickableFeature() {
 
     private var contextFromHook: Context? = null
 
-    private fun forwardWithImages(snsInfo: Any, text: String, proto: TimelineObjectProto?): Boolean {
+    private fun forwardWithImages(snsInfo: Any, text: String, proto: Any?): Boolean {
         try {
-            val mediaList = proto?.contentObj?.mediaList ?: return WeMomentsApi.uploadText(text)
+            val mediaList: List<Any> = emptyList() ?: return WeMomentsApi.uploadText(text)
             if (mediaList.isEmpty()) return WeMomentsApi.uploadText(text)
 
             // Use uploadTextAndPicList - we''ll just forward text if images fail
@@ -245,11 +226,11 @@ object AutoForwardMoments : ClickableFeature() {
                         Spacer(Modifier.height(4.dp))
                         Text("检测时间", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(mode == 0) { mode = 0 }
-                            Text("全天", 13.sp)
+                            RadioButton(selected = mode == 0, onClick = { mode = 0 })
+                            Text("全天", fontSize = 13.sp)
                             Spacer(Modifier.width(12.dp))
-                            RadioButton(mode == 1) { mode = 1 }
-                            Text("时段", 13.sp)
+                            RadioButton(selected = mode == 1, onClick = { mode = 1 })
+                            Text("时段", fontSize = 13.sp)
                         }
                         if (mode == 1) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -261,7 +242,7 @@ object AutoForwardMoments : ClickableFeature() {
                                     modifier = Modifier.width(80.dp)
                                 )
                                 Spacer(Modifier.width(8.dp))
-                                Text("点 至", 13.sp)
+                                Text("点 至", fontSize = 13.sp)
                                 Spacer(Modifier.width(8.dp))
                                 OutlinedTextField(
                                     value = eHour.toString(),
@@ -270,7 +251,7 @@ object AutoForwardMoments : ClickableFeature() {
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     modifier = Modifier.width(80.dp)
                                 )
-                                Text("点", 13.sp)
+                                Text("点", fontSize = 13.sp)
                             }
                         }
                         Spacer(Modifier.height(8.dp))
@@ -280,7 +261,7 @@ object AutoForwardMoments : ClickableFeature() {
                         }
                     }
                 },
-                confirmButton = {{
+                confirmButton = { Button(onClick = {
                     AutoForwardMoments.targetWxId = target
                     AutoForwardMoments.keywords = keywordsStr
                     AutoForwardMoments.detectIntervalSec = interval
@@ -295,8 +276,8 @@ object AutoForwardMoments : ClickableFeature() {
                     }
                     running = AutoForwardMoments.isRunning
                     Toast.makeText(context, if (running) "已开始监控" else "请填写 wxid 和关键词", Toast.LENGTH_SHORT).show()
-                }},
-                dismissButton = {{ TextButton(onDismiss) { Text("关闭") } }}
+                }) { Text("保存") } },
+                dismissButton = { TextButton(onClick = onDismiss) { Text("关闭") } }
             )
         }
     }

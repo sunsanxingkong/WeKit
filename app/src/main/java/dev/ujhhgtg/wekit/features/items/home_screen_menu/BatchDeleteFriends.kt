@@ -159,9 +159,12 @@ object BatchDeleteFriends : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItems
                             }
                         },
                         confirmButton = { Button(onClick = {
-                            if (sel.isEmpty()) { Toast.makeText(ctx, "请至少选一个好友", 0).show(); return@onClick }
-                            deleteMode = mode; deleteInterval = interval
-                            phase.value = Phase.Confirming(flist.filter { it.wxId in sel }, mode, 1)
+                            if (sel.isEmpty()) {
+                                Toast.makeText(ctx, "请至少选一个好友", 0).show()
+                            } else {
+                                deleteMode = mode; deleteInterval = interval
+                                phase.value = Phase.Confirming(flist.filter { it.wxId in sel }, mode, 1)
+                            }
                         }) { Text("下一步") } },
                         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
                     )
