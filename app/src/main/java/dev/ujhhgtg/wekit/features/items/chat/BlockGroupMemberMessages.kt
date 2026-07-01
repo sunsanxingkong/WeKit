@@ -145,7 +145,7 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
                                                     TextButton(onClick = {
                                                         unblockMember(groupId, wxId)
                                                         blockedSet.value = getBlockedSet(groupId)
-                                                        context.showToast("已解除屏蔽")
+                                                        showToast(context, "已解除屏蔽")
                                                     }) { Text("解除", fontSize = 12.sp) }
                                                 }
                                             )
@@ -209,7 +209,7 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
                                             blockedSet.value = getBlockedSet(groupId)
                                             selectedToBlock.clear()
                                             tab = 0
-                                            context.showToast("已屏蔽 ${selectedToBlock.size} 人")
+                                            showToast(context, "已屏蔽 ${selectedToBlock.size} 人")
                                         }, Modifier.fillMaxWidth()) { Text("屏蔽选中 (${selectedToBlock.size})", fontSize = 13.sp) }
                                     }
                                 }
