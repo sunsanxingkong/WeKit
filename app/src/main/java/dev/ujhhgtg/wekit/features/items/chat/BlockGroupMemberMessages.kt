@@ -21,7 +21,6 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import de.robv.android.xposed.XC_MethodHook
 import dev.ujhhgtg.comptime.nameOf
-import dev.ujhhgtg.wekit.features.api.core.models.WeContact
 import dev.ujhhgtg.wekit.features.api.core.WeDatabaseApi
 import dev.ujhhgtg.wekit.features.api.ui.WeChatMessageViewApi
 import dev.ujhhgtg.wekit.features.api.ui.WeConversationContextMenuApi
@@ -57,6 +56,9 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
         )
     }
 
+    // 缓存：群聊ID -> 被屏蔽的发送者列表
+    private val hiddenSendersCache = mutableMapOf<String, MutableMap<String, MutableList<View>>>()
+
     override fun onEnable() {
         WeConversationContextMenuApi.addProvider(this)
         WeChatMessageViewApi.addListener(object : WeChatMessageViewApi.ICreateViewListener {
@@ -68,15 +70,22 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
                     val sender = msgInfo.sender
                     if (sender.isEmpty() || sender == "system") return
                     if (sender in getBlockedSet(groupId)) {
+                        // 缓存该view以便解除屏蔽后恢复
+                        synchronized(hiddenSendersCache) {
+                            val senderViews = hiddenSendersCache.getOrPut(groupId) { mutableMapOf() }
+                            senderViews.getOrPut(sender) { mutableListOf() }.add(view)
+                        }
                         view.visibility = View.GONE
-                        view.layoutParams = android.view.ViewGroup.LayoutParams(0, 0)
                     }
                 } catch (_: Exception) { }
             }
         })
     }
 
-    override fun onDisable() { WeConversationContextMenuApi.removeProvider(this) }
+    override fun onDisable() {
+        WeConversationContextMenuApi.removeProvider(this)
+        hiddenSendersCache.clear()
+    }
 
     private fun getPrefKey(groupId: String) = "blocked_members_$groupId"
     private fun getBlockedSet(groupId: String): Set<String>
@@ -96,13 +105,22 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
         val set = getBlockedSet(groupId).toMutableSet()
         set.remove(wxId)
         saveBlockedSet(groupId, set)
+        // 恢复已缓存的该发送者所有消息的可见性
+        synchronized(hiddenSendersCache) {
+            val senderViews = hiddenSendersCache[groupId]?.remove(wxId)
+            senderViews?.forEach { view ->
+                try {
+                    view.visibility = View.VISIBLE
+                } catch (_: Exception) { }
+            }
+        }
     }
 
     fun showBlockMemberManager(context: Context, groupId: String) {
         showComposeDialog(context) {
             var tab by remember { mutableIntStateOf(0) }
             val blockedSet = remember { mutableStateOf(getBlockedSet(groupId)) }
-            val members = remember { mutableStateOf<List<WeContact>>(emptyList()) }
+            val members = remember { mutableStateOf<List<dev.ujhhgtg.wekit.features.api.core.models.WeContact>>(emptyList()) }
             var loaded by remember { mutableStateOf(false) }
             var searchQuery by remember { mutableStateOf("") }
             val selectedToBlock = remember { mutableStateListOf<String>() }
@@ -138,21 +156,30 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
                                         items(blockedSet.value.toList(), { it }) { wxId ->
                                             val contact = try { WeDatabaseApi.getFriend(wxId) } catch (_: Exception) { null }
                                             val name = contact?.displayName ?: contact?.nickname ?: wxId
-                                            ListItem(
-                                                headlineContent = { Text(name, fontSize = 14.sp) },
-                                                supportingContent = { Text(wxId, fontSize = 11.sp, color = ComposeColor.Gray) },
-                                                trailingContent = {
-                                                    TextButton(onClick = {
-                                                        unblockMember(groupId, wxId)
-                                                        blockedSet.value = getBlockedSet(groupId)
-                                                        showToast(context, "已解除屏蔽")
-                                                    }) { Text("解除", fontSize = 12.sp) }
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp, horizontal = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                AsyncImage(
+                                                    model = contact?.avatarUrl,
+                                                    contentDescription = null,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.size(36.dp).clip(RoundedCornerShape(6.dp)),
+                                                    imageLoader = GlobalImageLoader
+                                                )
+                                                Spacer(Modifier.width(8.dp))
+                                                Column(Modifier.weight(1f)) {
+                                                    Text(name, fontSize = 14.sp)
+                                                    Text(wxId, fontSize = 11.sp, color = ComposeColor.Gray)
                                                 }
-                                            )
+                                                TextButton(onClick = {
+                                                    unblockMember(groupId, wxId)
+                                                    blockedSet.value = getBlockedSet(groupId)
+                                                    showToast(context, "已解除屏蔽")
+                                                }) { Text("解除", fontSize = 12.sp) }
+                                            }
                                         }
                                     }
-                                    Spacer(Modifier.height(4.dp))
-                                    Text("提示：解除屏蔽后已隐藏的消息不会自动恢复", fontSize = 11.sp, color = ComposeColor.Gray)
                                 }
                             }
                             1 -> {
@@ -171,6 +198,7 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
                                     Spacer(Modifier.height(4.dp))
                                     Text("群成员 ${members.value.size} 人", fontSize = 11.sp, color = ComposeColor.Gray)
                                     if (selectedToBlock.isNotEmpty()) {
+                                        Spacer(Modifier.height(2.dp))
                                         Text("已选 ${selectedToBlock.size} 人", fontSize = 11.sp, color = ComposeColor(0xFF4CAF50))
                                     }
                                     Spacer(Modifier.height(4.dp))
@@ -207,9 +235,10 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
                                         Button(onClick = {
                                             blockMembers(groupId, selectedToBlock.toSet())
                                             blockedSet.value = getBlockedSet(groupId)
+                                            val count = selectedToBlock.size
                                             selectedToBlock.clear()
                                             tab = 0
-                                            showToast(context, "已屏蔽 ${selectedToBlock.size} 人")
+                                            showToast(context, "已屏蔽 $count 人")
                                         }, Modifier.fillMaxWidth()) { Text("屏蔽选中 (${selectedToBlock.size})", fontSize = 13.sp) }
                                     }
                                 }

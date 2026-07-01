@@ -8,10 +8,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
 import de.robv.android.xposed.XC_MethodHook
 import dev.ujhhgtg.comptime.nameOf
 import dev.ujhhgtg.wekit.features.api.core.WeDatabaseApi
@@ -23,6 +26,7 @@ import dev.ujhhgtg.wekit.features.core.SwitchFeature
 import dev.ujhhgtg.wekit.preferences.WePrefs
 import dev.ujhhgtg.wekit.ui.content.AlertDialogContent
 import dev.ujhhgtg.wekit.ui.content.Button
+import dev.ujhhgtg.wekit.ui.content.GlobalImageLoader
 import dev.ujhhgtg.wekit.ui.content.TextButton
 import dev.ujhhgtg.wekit.ui.utils.GroupRemoveIcon
 import dev.ujhhgtg.wekit.ui.utils.showComposeDialog
@@ -32,13 +36,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 @Feature(
     name = "批量退出群聊",
     categories = ["首页右上角菜单"],
-    description = "批量退出群聊，支持全选/反选/速率控制/三次确认"
+    description = "批量退出群聊，支持全选/反选/搜索/头像显示/速率控制/三次确认"
 )
 object BatchQuitGroups : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItemsProvider {
     private val TAG = nameOf(BatchQuitGroups::class)
@@ -59,13 +61,30 @@ object BatchQuitGroups : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItemsPro
                     var progress by remember { mutableIntStateOf(0) }
                     var total by remember { mutableIntStateOf(0) }
                     var failList by remember { mutableStateOf("") }
+                    var searchQuery by remember { mutableStateOf("") }
+
+                    val filteredGroups = remember(searchQuery, groups) {
+                        if (searchQuery.isBlank()) groups
+                        else groups.filter {
+                            it.nickname.lowercase().contains(searchQuery.lowercase()) ||
+                            it.wxId.lowercase().contains(searchQuery.lowercase())
+                        }
+                    }
 
                     AlertDialogContent(
                         title = { Text("批量退出群聊", fontWeight = FontWeight.Bold) },
                         text = {
                             when (phase) {
                                 0 -> {
-                                    Column(Modifier.size(340.dp, 440.dp)) {
+                                    Column(Modifier.size(360.dp, 480.dp)) {
+                                        OutlinedTextField(
+                                            value = searchQuery,
+                                            onValueChange = { searchQuery = it },
+                                            label = { Text("搜索群聊") },
+                                            singleLine = true,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                        Spacer(Modifier.height(4.dp))
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Text("操作间隔: ${interval}ms", fontSize = 13.sp)
                                             Slider(value = interval.toFloat(), onValueChange = { interval = it.toInt() }, valueRange = 500f..5000f, steps = 17, modifier = Modifier.weight(1f))
@@ -76,19 +95,31 @@ object BatchQuitGroups : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItemsPro
                                             TextButton(onClick = { sel.clear() }) { Text("清空", fontSize = 13.sp) }
                                         }
                                         HorizontalDivider()
-                                        Text("已选 ${sel.size}/${groups.size}", fontSize = 12.sp, color = Color.Gray)
+                                        Text("已选 ${sel.size}/${filteredGroups.size}", fontSize = 12.sp, color = Color.Gray)
                                         LazyColumn(Modifier.weight(1f)) {
-                                            items(groups, { it.wxId }) { g ->
-                                                ListItem(
-                                                    headlineContent = { Text(g.nickname.ifEmpty { g.wxId }, fontSize = 14.sp) },
-                                                    supportingContent = { Text(g.wxId, fontSize = 11.sp, color = Color.Gray) },
-                                                    leadingContent = {
-                                                        Checkbox(checked = g.wxId in sel,
-                                                            onCheckedChange = { c -> if (c) sel.add(g.wxId) else sel.remove(g.wxId) },
-                                                            colors = CheckboxDefaults.colors()
-                                                        )
+                                            items(filteredGroups, { it.wxId }) { g ->
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp, horizontal = 4.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Checkbox(
+                                                        checked = g.wxId in sel,
+                                                        onCheckedChange = { c -> if (c) sel.add(g.wxId) else sel.remove(g.wxId) }
+                                                    )
+                                                    Spacer(Modifier.width(8.dp))
+                                                    AsyncImage(
+                                                        model = g.avatarUrl,
+                                                        contentDescription = null,
+                                                        contentScale = ContentScale.Crop,
+                                                        modifier = Modifier.size(36.dp).clip(MaterialTheme.shapes.small),
+                                                        imageLoader = GlobalImageLoader
+                                                    )
+                                                    Spacer(Modifier.width(8.dp))
+                                                    Column(Modifier.weight(1f)) {
+                                                        Text(g.nickname.ifEmpty { g.wxId }, fontSize = 14.sp)
+                                                        Text(g.wxId, fontSize = 11.sp, color = Color.Gray)
                                                     }
-                                                )
+                                                }
                                             }
                                         }
                                         if (sel.isNotEmpty()) {
@@ -131,13 +162,13 @@ object BatchQuitGroups : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItemsPro
                                 3 -> {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                                         Text("✅ 退出完成！", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4CAF50))
-                                        Text("成功: ${total - failList.split(",").filter { it.isNotBlank() }.size}/${total}", fontSize = 14.sp)
+                                        val failCount = failList.split(",").filter { it.isNotBlank() }.size
+                                        Text("成功: ${total - failCount}/${total}", fontSize = 14.sp)
                                         if (failList.isNotEmpty()) Text("失败: $failList", fontSize = 12.sp, color = Color(0xFFF44336))
                                         Spacer(Modifier.height(8.dp))
                                         Button(onClick = onDismiss) { Text("关闭", fontSize = 13.sp) }
                                     }
                                 }
-                                else -> { Text("未知状态") }
                             }
                         }
                     )
@@ -146,30 +177,26 @@ object BatchQuitGroups : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItemsPro
         )
     }
 
-    private fun quitOne(wxId: String): Boolean {
-        val latch = CountDownLatch(1)
-        var success = false
-        try {
-            val body = """{"2":"${wxId.replace("'","''")}"}"""
-            WePacketHelper.sendCgi("/cgi-bin/micromsg-bin/quitchatroom", 343, 0, 0, body) {
-                onSuccess { _, _ -> success = true; latch.countDown() }
-                onFailure { _, _, _ -> success = false; latch.countDown() }
-            }
-            latch.await(15, TimeUnit.SECONDS)
-        } catch (e: Exception) {
-            WeLogger.e(TAG, "quit $wxId error", e)
-            latch.countDown()
-        }
-        return success
-    }
-
     private fun startQuit(ctx: Context, targets: List<WeGroup>, intervalMs: Int, onProgress: (Int, Int, List<String>) -> Unit) {
-        val fails = mutableListOf<String>()
         CoroutineScope(Dispatchers.IO).launch {
             var done = 0
+            val fails = mutableListOf<String>()
             for (t in targets) {
-                val ok = quitOne(t.wxId)
-                if (!ok) fails.add(t.nickname.ifEmpty { t.wxId })
+                try {
+                    val body = """{"2":"${t.wxId.replace("'","''")}"}"""
+                    WeLogger.i(TAG, "quitting ${t.wxId} body=$body")
+                    WePacketHelper.sendCgi("/cgi-bin/micromsg-bin/quitchatroom", 343, 0, 0, body) {
+                        onSuccess { json, _ ->
+                            WeLogger.i(TAG, "quit ${t.wxId} success: ${json.take(100)}")
+                        }
+                        onFailure { errType, errCode, errMsg ->
+                            WeLogger.w(TAG, "quit ${t.wxId} failed: errType=$errType errCode=$errCode errMsg=$errMsg")
+                        }
+                    }
+                } catch (e: Exception) {
+                    WeLogger.e(TAG, "quit ${t.wxId} error", e)
+                    fails.add(t.nickname.ifEmpty { t.wxId })
+                }
                 done++
                 onProgress(done, targets.size, fails.toList())
                 delay(intervalMs.toLong())

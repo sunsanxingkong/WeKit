@@ -20,35 +20,33 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 object AiReplyHelper {
     private val TAG = nameOf(AiReplyHelper::class)
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
+    // 信任所有证书（Xposed环境证书链不全）
+    private val trustAllManager = object : X509TrustManager {
+        override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+        override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+        override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+    }
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
-        // Xposed 环境可能证书链不全，信任所有证书
-        .sslSocketFactory(createTrustAllSslSocketFactory(), createTrustAllTrustManager())
+        .sslSocketFactory(SSLContext.getInstance("TLS").apply {
+            init(null, arrayOf(trustAllManager), SecureRandom())
+        }.socketFactory, trustAllManager)
         .hostnameVerifier { _, _ -> true }
         .build()
-
-    private fun createTrustAllSslSocketFactory(): javax.net.ssl.SSLSocketFactory {
-        val trustAll = createTrustAllTrustManager()
-        val sslContext = javax.net.ssl.SSLContext.getInstance("TLS")
-        sslContext.init(null, arrayOf(trustAll), java.security.SecureRandom())
-        return sslContext.socketFactory
-    }
-
-    private fun createTrustAllTrustManager(): javax.net.ssl.X509TrustManager {
-        return object : javax.net.ssl.X509TrustManager {
-            override fun checkClientTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {}
-            override fun checkServerTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {}
-            override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = emptyArray()
-        }
-    }
 
     var apiUrl by WePrefs.prefOption("ai_reply_api_url", "https://api.openai.com/v1/chat/completions")
     var apiKey by WePrefs.prefOption("ai_reply_api_key", "")
@@ -77,27 +75,35 @@ object AiReplyHelper {
         MainScope().launch(Dispatchers.IO + SupervisorJob()) {
             try {
                 val messages = WeDatabaseApi.getMessages(convId, 1, contextCount)
+                WeLogger.i(TAG, "getMessages returned ${messages.size} messages for $convId")
                 if (messages.isEmpty()) {
                     withContext(Dispatchers.Main) { showToast(context, "没有聊天记录") }
                     return@launch
                 }
+                // 构造消息列表并调用 API
                 val reply = callAiApi(buildMessages(messages))
                 if (reply != null) {
-                    WeMessageApi.sendText(convId, reply)
-                    withContext(Dispatchers.Main) { WeLogger.i(TAG, "AI reply sent") }
+                    WeLogger.i(TAG, "AI reply: ${reply.take(100)}")
+                    val sent = WeMessageApi.sendText(convId, reply)
+                    withContext(Dispatchers.Main) {
+                        if (sent) {
+                            showToast(context, "AI 回复已发送 ✓")
+                        } else {
+                            showToast(context, "消息发送失败，请重试")
+                        }
+                    }
                 } else {
                     withContext(Dispatchers.Main) { showToast(context, "AI 回复失败，请检查 API 配置和网络") }
                 }
             } catch (e: Exception) {
                 WeLogger.e(TAG, "AI reply failed", e)
-                withContext(Dispatchers.Main) { showToast(context, "AI 出错: ${e.message?.take(50) ?: "未知"}") }
+                withContext(Dispatchers.Main) { showToast(context, "AI 出错: ${e.message?.take(60) ?: "未知"}") }
             }
         }
     }
 
     private fun buildMessages(messages: List<WeMessage>): List<Pair<String, String>> {
         val result = mutableListOf("system" to systemPrompt)
-        // messages are newest-first, reverse to chronological
         for (msg in messages.reversed()) {
             val role = if (msg.isSend == 1) "assistant" else "user"
             val text = msg.content.ifBlank { "[非文本消息]" }
@@ -106,7 +112,8 @@ object AiReplyHelper {
         return result
     }
 
-    private fun callAiApi(messages: List<Pair<String, String>>): String? {
+    // 返回 null 表示失败，返回字符串表示成功
+    fun callAiApi(messages: List<Pair<String, String>>): String? {
         val bodyJson = JSONObject().apply {
             put("model", model)
             put("temperature", temperature.toDouble())
@@ -125,7 +132,7 @@ object AiReplyHelper {
             val response = client.newCall(request).execute()
             val body = response.body?.string()
             if (!response.isSuccessful) {
-                WeLogger.e(TAG, "API error: ${response.code} ${body?.take(200)}")
+                WeLogger.e(TAG, "API error: ${response.code} body=${body?.take(300)}")
                 return null
             }
             val json = JSONObject(body ?: return null)
@@ -135,7 +142,10 @@ object AiReplyHelper {
                     .optJSONObject("message")
                     ?.optString("content", null)
                     ?: choices.getJSONObject(0).optString("text", null)
-            } else null
+            } else {
+                WeLogger.e(TAG, "API response has no choices: ${body?.take(200)}")
+                null
+            }
         } catch (e: Exception) {
             WeLogger.e(TAG, "API call failed", e)
             null
