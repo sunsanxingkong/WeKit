@@ -7,6 +7,8 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.view.View
 import android.view.Window
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.wrapContentSize
@@ -18,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color as CColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -32,7 +35,6 @@ import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
-import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import dev.ujhhgtg.wekit.utils.WeLogger
 import dev.ujhhgtg.wekit.utils.android.getTopMostActivity
@@ -78,7 +80,7 @@ fun showComposeDialog(
                     CompositionLocalProvider(LocalContext provides ctx) {
                         AppTheme {
                             if (screenshot != null) {
-                                LiquidGlassBox(screenshot, scope, content)
+                                LiquidGlassDialog(screenshot, scope, content)
                             } else {
                                 Box(Modifier.fillMaxSize().wrapContentSize(Alignment.Center)) {
                                     scope.content()
@@ -97,7 +99,7 @@ fun showComposeDialog(
 }
 
 @Composable
-private fun LiquidGlassBox(
+private fun LiquidGlassDialog(
     screenshot: Bitmap,
     scope: ShowComposeDialogScope,
     content: @Composable ShowComposeDialogScope.() -> Unit
@@ -107,51 +109,50 @@ private fun LiquidGlassBox(
         drawImage(imageBitmap)
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .drawBackdrop(
-                backdrop = backdrop,
-                shape = { RoundedCornerShape(28.dp) },
-                effects = {
-                    // 1. 基础高斯模糊 — 磨砂效果
-                    blur(24f)
-                    // 2. 镜头折射 — 模拟水滴凸透镜效应
-                    lens(22f, 44f, depthEffect = true, chromaticAberration = true)
-                    // 3. 辉光增艳 — 对应 LGGC 的 saturate(160%)
-                    vibrancy()
-                    // 4. 色彩控制 — 提亮+高饱和，让玻璃更通透
-                    colorControls(brightness = 0.18f, saturation = 1.6f)
-                },
-                // 5. 边缘高光 — 对应 LGGC 的 inset white box-shadow（水滴感核心）
-                highlight = { Highlight.Plain },
-                // 6. 底部投影 — 悬浮感
-                shadow = {
-                    Shadow(
-                        radius = 42.dp,
-                        color = CColor.Black.copy(alpha = 0.18f),
-                        alpha = 1f
-                    )
-                },
-                // 7. 内阴影 — 内部深度感
-                innerShadow = {
-                    InnerShadow(
-                        radius = 8.dp,
-                        color = CColor.Black.copy(alpha = 0.06f),
-                        alpha = 1f
-                    )
-                },
-                onDrawSurface = {
-                    // 极浅底色，让玻璃保持通透（LGGC 的 --lggc-bg: rgba(255,255,255,0.08)）
-                    drawRect(CColor.White.copy(alpha = 0.12f))
-                }
-            )
-    ) {
-        // 内容直接叠加在玻璃层上
+    Box(Modifier.fillMaxSize()) {
+        // 1. 背景层：截图
+        Image(
+            bitmap = imageBitmap,
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.FillBounds
+        )
+
+        // 2. 暗色遮罩（只遮背景，不遮对话框卡片）
+        Box(Modifier.fillMaxSize().background(CColor.Black.copy(alpha = 0.45f)))
+
+        // 3. 对话框卡片 — 只有这个区域有液态玻璃效果
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .wrapContentSize(Alignment.Center)
+                .drawBackdrop(
+                    backdrop = backdrop,
+                    shape = { RoundedCornerShape(28.dp) },
+                    effects = {
+                        // 基础模糊 — 磨砂玻璃
+                        blur(18f)
+                        // 镜头折射 — 水滴凸透镜边缘效应
+                        lens(20f, 40f, depthEffect = true)
+                        // 辉光增艳
+                        vibrancy()
+                        // 提亮饱和 — 通透感
+                        colorControls(brightness = 0.15f, saturation = 1.4f)
+                    },
+                    // 边缘白色高光 — 水滴光泽感
+                    highlight = { Highlight.Plain },
+                    // 底部投影 — 悬浮感
+                    shadow = {
+                        Shadow(
+                            radius = 36.dp,
+                            color = CColor.Black.copy(alpha = 0.2f)
+                        )
+                    },
+                    // 卡片底色 — 半透明白
+                    onDrawSurface = {
+                        drawRect(CColor.White.copy(alpha = 0.55f))
+                    }
+                )
         ) {
             scope.content()
         }
