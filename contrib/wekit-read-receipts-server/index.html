@@ -85,6 +85,11 @@
         font-size: 0.8rem;
         padding: 0 0.15rem;
       }
+      .field-label {
+        font-size: 0.78rem;
+        color: #94a3b8;
+        white-space: nowrap;
+      }
 
       /* buttons */
       .btn {
@@ -223,6 +228,46 @@
         padding: 2.5rem 1rem;
         color: #475569;
         font-size: 0.85rem;
+      }
+
+      /* clickable rows */
+      .clickable-row {
+        cursor: pointer;
+      }
+      .row-selected td {
+        background: #1a3050 !important;
+      }
+
+      /* detail panel */
+      .detail-panel {
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 10px;
+        overflow: hidden;
+        margin-top: 1rem;
+      }
+      .detail-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.65rem 1rem;
+        background: #0f172a;
+        border-bottom: 1px solid #334155;
+        gap: 0.75rem;
+      }
+      .detail-title {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #94a3b8;
+      }
+      .detail-subtitle {
+        font-size: 0.78rem;
+        color: #60a5fa;
+        margin-left: 0.5rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 500px;
       }
 
       /* stats bar */
@@ -403,6 +448,7 @@
 
       <div class="controls">
         <div class="field-group">
+          <label for="wxidInput" class="field-label" data-i18n="wxidLabel">微信号</label>
           <input
             id="wxidInput"
             type="text"
@@ -459,6 +505,25 @@
           <tbody id="tbody"></tbody>
         </table>
       </div>
+
+      <div id="detailPanel" class="detail-panel hidden">
+        <div class="detail-header">
+          <div>
+            <span class="detail-title" data-i18n="readDetails">Read Details</span>
+            <span class="detail-subtitle" id="detailFor"></span>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="closeDetail()" data-i18n="close">Close</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th data-i18n="ipAddress">IP Address</th>
+              <th data-i18n="readAt">Read At</th>
+            </tr>
+          </thead>
+          <tbody id="detailTbody"></tbody>
+        </table>
+      </div>
     </div>
 
     <div id="toastContainer" class="toast-container"></div>
@@ -487,6 +552,9 @@
       const modalBody = document.getElementById("modalBody");
       const modalCancel = document.getElementById("modalCancel");
       const modalConfirm = document.getElementById("modalConfirm");
+      const detailPanel = document.getElementById("detailPanel");
+      const detailFor = document.getElementById("detailFor");
+      const detailTbody = document.getElementById("detailTbody");
 
       let currentFilterUrl = "";
 
@@ -505,6 +573,7 @@
           deleteTitle: "删除此 wxId 的所有消息",
           filterMsg: "按消息内容过滤...",
           wxid: "wxId",
+          wxidLabel: "微信号",
           message: "消息",
           reads: "已读人数",
           timestamp: "时间",
@@ -526,6 +595,12 @@
           clearingUuid: "正在清除 {0} 的记录…",
           clearedUuid: "已清除 {0} 的记录",
           failedClearUuid: "清除 wxId 记录失败",
+          readDetails: "已读详情",
+          ipAddress: "IP 地址",
+          readAt: "读取时间",
+          noReads: "暂无读取记录",
+          close: "关闭",
+          readsFor: "「{0}」的已读记录",
         },
         en: {
           title: "Read Receipts",
@@ -538,6 +613,7 @@
           deleteTitle: "Delete messages for this wxId",
           filterMsg: "Filter by message text...",
           wxid: "wxId",
+          wxidLabel: "Sender",
           message: "Message",
           reads: "Reads",
           timestamp: "Timestamp",
@@ -560,6 +636,12 @@
           clearingUuid: "Clearing records for {0}…",
           clearedUuid: "Records for {0} cleared",
           failedClearUuid: "Failed to clear wxId records",
+          readDetails: "Read Details",
+          ipAddress: "IP Address",
+          readAt: "Read At",
+          noReads: "No reads yet",
+          close: "Close",
+          readsFor: 'Reads for: "{0}"',
         },
       };
 
@@ -665,6 +747,7 @@
       }
 
       async function fetchData(url) {
+        closeDetail();
         tbody.innerHTML =
           '<tr class="empty-row"><td colspan="4">' +
           esc(t("loading")) +
@@ -691,7 +774,7 @@
 
           tbody.innerHTML = data
             .map(
-              (r) => `<tr>
+              (r) => `<tr class="clickable-row" data-id="${escAttr(r.id)}" data-content="${escAttr(r.content)}" onclick="toggleDetail(this)">
       <td class="uuid-col">${esc(r.wxId)}</td>
       <td class="msg-col">${esc(r.content)}</td>
       <td class="reads-col">${esc(r.reads)}</td>
@@ -756,6 +839,68 @@
           .replace(/&/g, "&amp;")
           .replace(/</g, "&lt;")
           .replace(/>/g, "&gt;");
+      }
+
+      function escAttr(s) {
+        return String(s)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      /* ── detail panel ── */
+      let selectedRow = null;
+
+      function toggleDetail(row) {
+        if (selectedRow === row) {
+          closeDetail();
+          return;
+        }
+        if (selectedRow) selectedRow.classList.remove("row-selected");
+        selectedRow = row;
+        row.classList.add("row-selected");
+        openDetail(row.dataset.id, row.dataset.content);
+      }
+
+      function closeDetail() {
+        detailPanel.classList.add("hidden");
+        if (selectedRow) {
+          selectedRow.classList.remove("row-selected");
+          selectedRow = null;
+        }
+      }
+
+      async function openDetail(id, content) {
+        detailFor.textContent = t("readsFor", content);
+        detailTbody.innerHTML =
+          '<tr class="empty-row"><td colspan="2">' + esc(t("loading")) + "</td></tr>";
+        detailPanel.classList.remove("hidden");
+        try {
+          const res = await fetch("/reads/" + encodeURIComponent(id));
+          if (!res.ok) {
+            detailTbody.innerHTML = `<tr class="empty-row"><td colspan="2">HTTP ${res.status}</td></tr>`;
+            return;
+          }
+          const reads = await res.json();
+          if (!reads.length) {
+            detailTbody.innerHTML =
+              '<tr class="empty-row"><td colspan="2">' + esc(t("noReads")) + "</td></tr>";
+            return;
+          }
+          detailTbody.innerHTML = reads
+            .map(
+              (r) => `<tr>
+      <td class="ip-col">${esc(r.ip)}</td>
+      <td class="ts-col">${esc(r.timestamp)}</td>
+    </tr>`,
+            )
+            .join("");
+        } catch (e) {
+          detailTbody.innerHTML =
+            '<tr class="empty-row"><td colspan="2">' + esc(t("networkError")) + "</td></tr>";
+        }
       }
 
       /* ── keyboard ── */

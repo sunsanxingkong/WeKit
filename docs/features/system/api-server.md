@@ -1,6 +1,6 @@
-# API 服务器
+# API + MCP 服务器
 
-> 启用 MCP 与 REST API 服务器, 让人类与 AI 能够访问微信能力
+> 启用 REST API 与 MCP 服务器, 让人类与 AI 能够访问微信能力
 
 ## 类别
 
