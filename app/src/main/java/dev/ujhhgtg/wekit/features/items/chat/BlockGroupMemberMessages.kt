@@ -24,6 +24,7 @@ import coil3.compose.AsyncImage
 import com.composables.icons.materialsymbols.MaterialSymbols
 import com.composables.icons.materialsymbols.outlined.Arrow_back
 import com.composables.icons.materialsymbols.outlined.Keyboard_arrow_right
+import com.composables.icons.materialsymbols.outlined.Search
 import de.robv.android.xposed.XC_MethodHook
 import dev.ujhhgtg.comptime.nameOf
 import dev.ujhhgtg.wekit.features.api.core.WeDatabaseApi
@@ -322,7 +323,7 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
                                         placeholder = { Text("搜索成员") },
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                                        leadingIcon = { Icon(MaterialSymbols.Outlined.Keyboard_arrow_right, contentDescription = null, modifier = Modifier.size(20.dp)) }
+                                        leadingIcon = { Icon(MaterialSymbols.Outlined.Search, contentDescription = null, modifier = Modifier.size(20.dp)) }
                                     )
                                     Spacer(Modifier.height(4.dp))
 
