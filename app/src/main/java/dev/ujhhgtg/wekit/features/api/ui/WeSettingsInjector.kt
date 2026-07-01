@@ -17,7 +17,6 @@ import com.tencent.mm.plugin.setting.ui.setting_new.settings.SettingGroupPersona
 import com.tencent.mm.pluginsdk.ui.chat.ChatFooter
 import com.tencent.mm.ui.LauncherUI
 import com.tencent.mm.ui.base.preference.IconPreference
-import com.tencent.mm.ui.widget.MMEditText
 import dev.ujhhgtg.comptime.This
 import dev.ujhhgtg.reflekt.reflekt
 import dev.ujhhgtg.reflekt.utils.isBuiltin
@@ -253,8 +252,8 @@ object WeSettingsInjector : ApiFeature(), IResolveDex {
             val chatFooter = thisObject as ChatFooter
 
             val editText = thisObject.reflekt().firstField {
-                type = MMEditText::class
-            }.get()!! as MMEditText
+                type { it.name == "MMEditText" }
+            }.get()!!
 
             WeLogger.d(TAG, "modified chatfooter")
 

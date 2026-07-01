@@ -143,3 +143,7 @@ fun String.stripWxId(): String {
     val match = WXID_PREFIX_REGEX.find(this)
     return match?.groupValues?.get(1) ?: this
 }
+
+// 旧名称别名，保持兼容
+@Suppress("unused")
+fun String.removeWxIdPrefix(): String = this.stripWxId()
