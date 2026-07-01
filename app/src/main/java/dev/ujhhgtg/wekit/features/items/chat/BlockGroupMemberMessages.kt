@@ -23,13 +23,13 @@ import coil3.compose.AsyncImage
 import de.robv.android.xposed.XC_MethodHook
 import dev.ujhhgtg.comptime.nameOf
 import dev.ujhhgtg.wekit.features.api.core.WeDatabaseApi
+import dev.ujhhgtg.wekit.features.api.core.models.MessageInfo
 import dev.ujhhgtg.wekit.features.api.core.models.WeContact
 import dev.ujhhgtg.wekit.features.api.ui.WeChatMessageViewApi
 import dev.ujhhgtg.wekit.features.api.ui.WeConversationContextMenuApi
 import dev.ujhhgtg.wekit.features.core.Feature
 import dev.ujhhgtg.wekit.features.core.SwitchFeature
 import dev.ujhhgtg.wekit.preferences.WePrefs
-import dev.ujhhgtg.wekit.ui.content.AlertDialogContent
 import dev.ujhhgtg.wekit.ui.content.Button
 import dev.ujhhgtg.wekit.ui.content.GlobalImageLoader
 import dev.ujhhgtg.wekit.ui.content.TextButton
@@ -79,7 +79,7 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
         WeChatMessageViewApi.addListener(object : WeChatMessageViewApi.ICreateViewListener {
             override fun onCreateView(param: XC_MethodHook.MethodHookParam, view: View) {
                 try {
-                    val msgInfo = WeChatMessageViewApi.getMsgInfoFromParam(param) ?: return
+                    val msgInfo = WeChatMessageViewApi.getMsgInfoFromParam(param)
                     val groupId = msgInfo.talker
                     if (!groupId.contains("@chatroom")) return
                     val sender = msgInfo.sender
@@ -106,21 +106,20 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
 
     // ── 关键词匹配与隐藏 ──
 
-    private fun maybeHideByKeyword(view: View, msgInfo: WeChatMessageViewApi.MessageInfo, groupId: String, sender: String) {
+    private fun maybeHideByKeyword(view: View, msgInfo: MessageInfo, groupId: String, sender: String) {
         if (!getKeywordFilterEnabled(groupId)) return
         val keywords = getFilterKeywords(groupId)
         val targets = getFilterTargets(groupId)
         if (keywords.isEmpty()) return
         if (targets.isNotEmpty() && sender !in targets) return
 
-        val rawContent = msgInfo.content
-        val actualContent = msgInfo.actualContent
-        val strippedContent = actualContent.substringAfter(":").substringAfter("\n").trim()
-        val textsToCheck = listOfNotNull(
-            actualContent.takeIf { it.isNotBlank() },
-            rawContent.takeIf { it.isNotBlank() },
-            strippedContent.takeIf { it.isNotBlank() }
-        ).distinct()
+        val contentText = msgInfo.content
+        val actualText = msgInfo.actualContent
+        val strippedText = actualText.substringAfter(":").substringAfter("\n").trim()
+        val textsToCheck = mutableListOf<String>()
+        if (actualText.isNotBlank()) textsToCheck.add(actualText)
+        if (contentText.isNotBlank() && contentText != actualText) textsToCheck.add(contentText)
+        if (strippedText.isNotBlank() && strippedText != actualText && strippedText != contentText) textsToCheck.add(strippedText)
 
         for (text in textsToCheck) {
             for (kw in keywords) {
