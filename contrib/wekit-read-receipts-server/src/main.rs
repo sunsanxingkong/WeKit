@@ -3,12 +3,12 @@ use axum::{
     extract::{ConnectInfo, Path, Query, State},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
 };
-use base64::{Engine as _, engine::general_purpose};
 use chrono::Utc;
 use libsql::{Builder, Connection};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 use std::sync::{Mutex, OnceLock};
 use std::io::Write;
@@ -29,36 +29,70 @@ const TRACKING_PIXEL: &[u8] = &[
     0x42, 0x60, 0x82,
 ];
 
-/// Query parameters for the tracking pixel endpoint.
-/// Only `uuid` is required for logging; `msg` is optional base64-encoded text.
-#[derive(Deserialize)]
-struct TrackingPixelParams {
-    uuid: Option<String>,
-    msg: Option<String>,
+/// Computes the deterministic message id shared by client and server:
+/// `sha256(wx_id + '\0' + content + '\0' + create_time)` rendered as lowercase hex,
+/// where `create_time` is the client-supplied epoch-millis as a decimal string.
+/// The NUL separators prevent ambiguity between the fields; folding in create_time
+/// keeps two identical-text messages from colliding onto the same id.
+fn compute_msg_id(wx_id: &str, content: &str, create_time: i64) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(wx_id.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(content.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(create_time.to_string().as_bytes());
+    hex::encode(hasher.finalize())
 }
 
-impl TrackingPixelParams {
-    /// Decodes the base64 `msg` field, truncating to 500 chars.
-    /// Returns an empty string if absent, invalid base64, or not valid UTF-8.
-    fn decoded_msg(&self) -> String {
-        self.msg
-            .as_deref()
-            .and_then(|m| general_purpose::URL_SAFE_NO_PAD.decode(m.as_bytes()).ok())
-            .and_then(|bytes| String::from_utf8(bytes).ok())
-            .map(|s| s.chars().take(500).collect())
-            .unwrap_or_default()
-    }
+/// Body of `POST /register`: the sender's wxId, the plaintext message content,
+/// and the client-assigned createTime. The server derives the id from all three.
+#[derive(Deserialize)]
+struct RegisterRequest {
+    #[serde(rename = "wxId")]
+    wx_id: String,
+    content: String,
+    #[serde(rename = "createTime")]
+    create_time: i64,
+}
+
+#[derive(Serialize)]
+struct RegisterResponse {
+    id: String,
+}
+
+/// Query parameters for the tracking pixel and count endpoints.
+/// Both carry the sender `wxId` and the message `id` (no more uuid/msg).
+#[derive(Deserialize)]
+struct ReadParams {
+    #[serde(rename = "wxId")]
+    wx_id: Option<String>,
+    id: Option<String>,
+}
+
+#[derive(Serialize)]
+struct CountResponse {
+    count: i64,
 }
 
 struct AppState {
     db: Connection,
 }
 
+/// One registered message plus its deduped-by-IP read count, for the dashboard.
 #[derive(Serialize)]
-struct HitRecord {
-    uuid: String,
+struct MessageRecord {
+    id: String,
+    #[serde(rename = "wxId")]
+    wx_id: String,
+    content: String,
+    reads: i64,
+    timestamp: String,
+}
+
+/// One individual read event (pixel hit) for a message's detail view.
+#[derive(Serialize)]
+struct ReadRecord {
     ip: String,
-    msg: String,
     timestamp: String,
 }
 
@@ -134,9 +168,10 @@ impl Completer for ReplHelper {
             }
         } else if line.trim_start().starts_with("/sql") {
             let sql_keywords = &[
-                "SELECT", "INSERT", "UPDATE", "DELETE", "FROM", "WHERE", 
-                "LIMIT", "ORDER BY", "DESC", "INTO", "VALUES", "CREATE TABLE", 
-                "IF NOT EXISTS", "AND", "OR", "hits", "uuid", "ip", "msg", "timestamp"
+                "SELECT", "INSERT", "UPDATE", "DELETE", "FROM", "WHERE",
+                "LIMIT", "ORDER BY", "DESC", "INTO", "VALUES", "CREATE TABLE",
+                "IF NOT EXISTS", "AND", "OR", "JOIN", "ON", "GROUP BY", "COUNT", "DISTINCT",
+                "messages", "reads", "id", "wx_id", "content", "ip", "timestamp"
             ];
             
             let word_lower = word.to_lowercase();
@@ -244,15 +279,17 @@ fn highlight_sql(sql: &str) -> String {
 fn color_word(word: &str) -> String {
     let word_upper = word.to_uppercase();
     match word_upper.as_str() {
-        "SELECT" | "INSERT" | "UPDATE" | "DELETE" | "FROM" | "WHERE" | 
-        "LIMIT" | "ORDER" | "BY" | "DESC" | "INTO" | "VALUES" | "CREATE" | 
-        "TABLE" | "IF" | "NOT" | "EXISTS" | "AND" | "OR" | "JOIN" | "ON" => {
+        "SELECT" | "INSERT" | "UPDATE" | "DELETE" | "FROM" | "WHERE" |
+        "LIMIT" | "ORDER" | "BY" | "DESC" | "INTO" | "VALUES" | "CREATE" |
+        "TABLE" | "IF" | "NOT" | "EXISTS" | "AND" | "OR" | "JOIN" | "ON" |
+        "GROUP" | "COUNT" | "DISTINCT" => {
             format!("\x1b[1;36m{}\x1b[0m", word) // Bold Cyan
         }
-        "hits" | "HITS" => {
+        "messages" | "reads" => {
             format!("\x1b[1;35m{}\x1b[0m", word) // Bold Magenta
         }
-        "UUID" | "IP" | "MSG" | "TIMESTAMP" | "uuid" | "ip" | "msg" | "timestamp" => {
+        "id" | "wx_id" | "content" | "ip" | "timestamp" |
+        "ID" | "WX_ID" | "CONTENT" | "IP" | "TIMESTAMP" => {
             format!("\x1b[1;34m{}\x1b[0m", word) // Bold Blue
         }
         _ => word.to_string(),
@@ -354,46 +391,35 @@ async fn handle_sql_command(conn: &libsql::Connection, sql: &str) -> Result<(), 
 fn handle_help_command() {
     println!("\x1b[1;36mAvailable commands:\x1b[0m");
     println!("  \x1b[1;32m/help\x1b[0m                       Show this help message");
-    println!("  \x1b[1;32m/status\x1b[0m                     Show server stats (hits, unique UUIDs, unique IPs, latest hit)");
-    println!("  \x1b[1;32m/url <uuid> [msg]\x1b[0m           Generate tracking URL & HTML tag for a UUID and optional message");
-    println!("  \x1b[1;32m/tail [count]\x1b[0m               Show the latest [count] (default 10) tracked hits in real-time");
-    println!("  \x1b[1;32m/query <uuid>\x1b[0m               Show tracking history for a specific UUID in a table");
-    println!("  \x1b[1;32m/clear\x1b[0m                      Clear all tracked read receipts from the database");
+    println!("  \x1b[1;32m/status\x1b[0m                     Show server stats (messages, unique senders, reads, unique reader IPs)");
+    println!("  \x1b[1;32m/url <wxId> <message>\x1b[0m       Register a message & print its tracking URL + HTML tag");
+    println!("  \x1b[1;32m/tail [count]\x1b[0m               Show the latest [count] (default 10) read events in real-time");
+    println!("  \x1b[1;32m/query <wxId>\x1b[0m               Show all tracked messages for a sender with their read counts");
+    println!("  \x1b[1;32m/clear\x1b[0m                      Clear all tracked messages and reads from the database");
     println!("  \x1b[1;32m/open\x1b[0m                       Open the web dashboard in your default browser");
     println!("  \x1b[1;32m/sql <query>\x1b[0m                Execute arbitrary SQL queries on the database");
     println!("  \x1b[1;32m/exit\x1b[0m                       Shutdown the server and exit the REPL");
 }
 
 async fn handle_status_command(conn: &libsql::Connection) -> Result<(), Box<dyn std::error::Error>> {
-    let mut total_rows = conn.query("SELECT COUNT(*) FROM hits", ()).await?;
-    let total_hits = match total_rows.next().await? {
-        Some(row) => match row.get_value(0)? {
-            libsql::Value::Integer(n) => n,
-            _ => 0,
-        },
-        None => 0,
-    };
+    async fn scalar(conn: &libsql::Connection, sql: &str) -> Result<i64, Box<dyn std::error::Error>> {
+        let mut rows = conn.query(sql, ()).await?;
+        Ok(match rows.next().await? {
+            Some(row) => match row.get_value(0)? {
+                libsql::Value::Integer(n) => n,
+                _ => 0,
+            },
+            None => 0,
+        })
+    }
 
-    let mut uuid_rows = conn.query("SELECT COUNT(DISTINCT uuid) FROM hits", ()).await?;
-    let unique_uuids = match uuid_rows.next().await? {
-        Some(row) => match row.get_value(0)? {
-            libsql::Value::Integer(n) => n,
-            _ => 0,
-        },
-        None => 0,
-    };
+    let total_messages = scalar(conn, "SELECT COUNT(*) FROM messages").await?;
+    let unique_senders = scalar(conn, "SELECT COUNT(DISTINCT wx_id) FROM messages").await?;
+    let total_reads = scalar(conn, "SELECT COUNT(*) FROM reads").await?;
+    let unique_reader_ips = scalar(conn, "SELECT COUNT(DISTINCT ip) FROM reads").await?;
 
-    let mut ip_rows = conn.query("SELECT COUNT(DISTINCT ip) FROM hits", ()).await?;
-    let unique_ips = match ip_rows.next().await? {
-        Some(row) => match row.get_value(0)? {
-            libsql::Value::Integer(n) => n,
-            _ => 0,
-        },
-        None => 0,
-    };
-
-    let mut latest_rows = conn.query("SELECT timestamp FROM hits ORDER BY timestamp DESC LIMIT 1", ()).await?;
-    let latest_hit = match latest_rows.next().await? {
+    let mut latest_rows = conn.query("SELECT timestamp FROM reads ORDER BY timestamp DESC LIMIT 1", ()).await?;
+    let latest_read = match latest_rows.next().await? {
         Some(row) => match row.get_value(0)? {
             libsql::Value::Text(s) => s.clone(),
             _ => "N/A".to_string(),
@@ -402,46 +428,58 @@ async fn handle_status_command(conn: &libsql::Connection) -> Result<(), Box<dyn 
     };
 
     println!("\x1b[1;36m--- Server Status ---\x1b[0m");
-    println!("Server address: \x1b[1;32mhttp://localhost:8080\x1b[0m");
-    println!("Total tracked hits: \x1b[1;33m{}\x1b[0m", total_hits);
-    println!("Unique UUIDs:       \x1b[1;33m{}\x1b[0m", unique_uuids);
-    println!("Unique IP visitors: \x1b[1;33m{}\x1b[0m", unique_ips);
-    println!("Latest hit time:    \x1b[1;33m{}\x1b[0m", latest_hit);
-    
+    println!("Server address:        \x1b[1;32mhttp://localhost:8080\x1b[0m");
+    println!("Tracked messages:      \x1b[1;33m{}\x1b[0m", total_messages);
+    println!("Unique senders:        \x1b[1;33m{}\x1b[0m", unique_senders);
+    println!("Total reads:           \x1b[1;33m{}\x1b[0m", total_reads);
+    println!("Unique reader IPs:     \x1b[1;33m{}\x1b[0m", unique_reader_ips);
+    println!("Latest read time:      \x1b[1;33m{}\x1b[0m", latest_read);
+
     Ok(())
 }
 
-fn handle_url_command(args: &str) {
-    let parts: Vec<&str> = args.split_whitespace().collect();
-    if parts.is_empty() {
-        println!("Usage: /url <uuid> [optional message]");
-        return;
+async fn handle_url_command(conn: &libsql::Connection, args: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let parts: Vec<&str> = args.splitn(2, char::is_whitespace).collect();
+    if parts.len() < 2 || parts[0].is_empty() || parts[1].trim().is_empty() {
+        println!("Usage: /url <wxId> <message>");
+        return Ok(());
     }
-    
-    let uuid = parts[0];
-    let mut url = format!("http://localhost:8080/pixel?uuid={}", uuid);
-    
-    if parts.len() > 1 {
-        let msg = parts[1..].join(" ");
-        let encoded_msg = general_purpose::URL_SAFE_NO_PAD.encode(msg.as_bytes());
-        url = format!("{}&msg={}", url, encoded_msg);
-    }
-    
-    println!("\x1b[1;36mGenerated Tracking Link Details:\x1b[0m");
+
+    let wx_id = parts[0];
+    let content = parts[1].trim();
+    // Synthesize a createTime so re-running /url with identical text yields a fresh id.
+    let create_time = Utc::now().timestamp_millis();
+    let id = compute_msg_id(wx_id, content, create_time);
+    let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    conn.execute(
+        "INSERT INTO messages (id, wx_id, content, timestamp) VALUES (?1, ?2, ?3, ?4) \
+         ON CONFLICT(id) DO NOTHING",
+        (id.as_str(), wx_id, content, now),
+    )
+    .await?;
+
+    let url = format!("http://localhost:8080/pixel?wxId={}&id={}", wx_id, id);
+
+    println!("\x1b[1;36mRegistered Tracking Message:\x1b[0m");
+    println!("wxId:     \x1b[1;34m{}\x1b[0m", wx_id);
+    println!("id:       \x1b[1;35m{}\x1b[0m", id);
     println!("URL:      \x1b[4;32m{}\x1b[0m", url);
     println!("HTML Tag: \x1b[33m<img src=\"{}\" width=\"1\" height=\"1\" style=\"display:none;\" />\x1b[0m", url);
-    println!("Markdown: \x1b[35m![pixel]({})\x1b[0m", url);
+    Ok(())
 }
 
 async fn handle_tail_command(conn: &libsql::Connection, args: &str) -> Result<(), Box<dyn std::error::Error>> {
     let count: i64 = args.trim().parse().unwrap_or(10);
-    
+
     let mut rows = conn.query(
-        "SELECT timestamp, ip, uuid, msg FROM hits ORDER BY timestamp DESC LIMIT ?1",
+        "SELECT r.timestamp, r.ip, r.wx_id, COALESCE(m.content, '') \
+         FROM reads r LEFT JOIN messages m ON r.id = m.id \
+         ORDER BY r.timestamp DESC LIMIT ?1",
         libsql::params![count]
     ).await?;
-    
-    println!("\x1b[1;36m--- Latest {} Hits ---\x1b[0m", count);
+
+    println!("\x1b[1;36m--- Latest {} Reads ---\x1b[0m", count);
     let mut found = 0;
     while let Some(row) = rows.next().await? {
         let timestamp = match row.get_value(0)? {
@@ -452,35 +490,40 @@ async fn handle_tail_command(conn: &libsql::Connection, args: &str) -> Result<()
             libsql::Value::Text(s) => s.clone(),
             _ => "".to_string(),
         };
-        let uuid = match row.get_value(2)? {
+        let wx_id = match row.get_value(2)? {
             libsql::Value::Text(s) => s.clone(),
             _ => "".to_string(),
         };
-        let msg = match row.get_value(3)? {
+        let content = match row.get_value(3)? {
             libsql::Value::Text(s) => s.clone(),
             _ => "".to_string(),
         };
-        
+
         println!(
-            "\x1b[34m[{}]\x1b[0m ip: \x1b[32m{:<15}\x1b[0m | uuid: \x1b[35m{}\x1b[0m | msg: \x1b[33m{}\x1b[0m",
-            timestamp, ip, uuid, msg
+            "\x1b[34m[{}]\x1b[0m ip: \x1b[32m{:<15}\x1b[0m | wxId: \x1b[35m{}\x1b[0m | msg: \x1b[33m{}\x1b[0m",
+            timestamp, ip, wx_id, content
         );
         found += 1;
     }
-    
+
     if found == 0 {
-        println!("No hits recorded in the database.");
+        println!("No reads recorded in the database.");
     }
-    
+
     Ok(())
 }
 
-async fn handle_query_command(conn: &libsql::Connection, uuid: &str) -> Result<(), Box<dyn std::error::Error>> {
-    if uuid.trim().is_empty() {
-        println!("Usage: /query <uuid>");
+async fn handle_query_command(conn: &libsql::Connection, wx_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if wx_id.trim().is_empty() {
+        println!("Usage: /query <wxId>");
         return Ok(());
     }
-    let sql = format!("SELECT timestamp, ip, msg FROM hits WHERE uuid = '{}' ORDER BY timestamp DESC", uuid.replace('\'', "''"));
+    let sql = format!(
+        "SELECT m.timestamp, m.id, m.content, \
+         (SELECT COUNT(DISTINCT r.ip) FROM reads r WHERE r.id = m.id) AS read_count \
+         FROM messages m WHERE m.wx_id = '{}' ORDER BY m.timestamp DESC",
+        wx_id.replace('\'', "''")
+    );
     handle_sql_command(conn, &sql).await
 }
 
@@ -492,8 +535,9 @@ async fn handle_clear_command(conn: &libsql::Connection) -> Result<(), Box<dyn s
     if std::io::stdin().read_line(&mut response).is_ok() {
         let trimmed = response.trim().to_lowercase();
         if trimmed == "y" || trimmed == "yes" {
-            let rows_affected = conn.execute("DELETE FROM hits", ()).await?;
-            println!("Database wiped successfully! Wiped \x1b[1;31m{}\x1b[0m records.", rows_affected);
+            conn.execute("DELETE FROM reads", ()).await?;
+            let rows_affected = conn.execute("DELETE FROM messages", ()).await?;
+            println!("Database wiped successfully! Wiped \x1b[1;31m{}\x1b[0m messages (and all their reads).", rows_affected);
         } else {
             println!("Clear cancelled.");
         }
@@ -533,7 +577,9 @@ async fn route_command(trimmed: &str, repl_conn: &libsql::Connection) -> Result<
         }
     } else if trimmed.starts_with("/url ") {
         let args = trimmed["/url ".len()..].trim();
-        handle_url_command(args);
+        if let Err(e) = handle_url_command(repl_conn, args).await {
+            println!("Error registering URL: {e}");
+        }
     } else if trimmed.starts_with("/tail") {
         let args = if trimmed.len() > "/tail".len() {
             trimmed["/tail".len()..].trim()
@@ -544,9 +590,9 @@ async fn route_command(trimmed: &str, repl_conn: &libsql::Connection) -> Result<
             println!("Error tailing hits: {e}");
         }
     } else if trimmed.starts_with("/query ") {
-        let uuid = trimmed["/query ".len()..].trim();
-        if let Err(e) = handle_query_command(repl_conn, uuid).await {
-            println!("Error querying UUID: {e}");
+        let wx_id = trimmed["/query ".len()..].trim();
+        if let Err(e) = handle_query_command(repl_conn, wx_id).await {
+            println!("Error querying sender: {e}");
         }
     } else {
         println!("Unknown command. Type /help to list available commands.");
@@ -600,12 +646,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let conn = db.connect()?;
     let repl_conn = db.connect()?;
 
-    // Create hits table — logs each pixel request by UUID
+    // messages: registered by the sender before tampering. PK = deterministic hash of (wx_id + content).
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS hits (
-            uuid TEXT NOT NULL,
-            ip TEXT NOT NULL,
-            msg TEXT NOT NULL DEFAULT '',
+        "CREATE TABLE IF NOT EXISTS messages (
+            id        TEXT PRIMARY KEY,
+            wx_id     TEXT NOT NULL,
+            content   TEXT NOT NULL,
+            timestamp TEXT NOT NULL
+        );",
+        (),
+    )
+    .await?;
+
+    // reads: one row per tracking-pixel hit. Reader identity is approximated by distinct IP.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS reads (
+            id        TEXT NOT NULL,
+            wx_id     TEXT NOT NULL,
+            ip        TEXT NOT NULL,
             timestamp TEXT NOT NULL
         );",
         (),
@@ -614,9 +672,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app = Router::new()
         .route("/", get(serve_index))
+        .route("/register", post(register_message))
         .route("/pixel", get(serve_tracking_pixel))
-        .route("/receipts", get(list_all_receipts).delete(delete_all_receipts))
-        .route("/receipts/{uuid}", get(list_receipts_for_uuid).delete(delete_receipts_for_uuid))
+        .route("/count", get(read_count))
+        .route("/messages", get(list_messages).delete(delete_all_messages))
+        .route("/messages/{wx_id}", get(list_messages_for_sender).delete(delete_messages_for_sender))
+        .route("/reads/{id}", get(list_reads_for_message))
         .with_state(Arc::new(AppState { db: conn }));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
@@ -716,33 +777,67 @@ async fn serve_index() -> impl IntoResponse {
         .unwrap()
 }
 
-/// Serves the 1x1 transparent PNG and logs the requester's IP + timestamp against the UUID.
-/// Also dumps all query parameters and request headers at INFO level for debugging.
+/// Registers a message before it is tampered with. The server derives the
+/// deterministic id from `(wxId, content)`, upserts the row (keeping the
+/// original timestamp on re-registration), and returns the id to the client.
+async fn register_message(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<RegisterRequest>,
+) -> Result<Json<RegisterResponse>, (StatusCode, String)> {
+    if req.wx_id.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "wxId must not be empty".to_string()));
+    }
+
+    let id = compute_msg_id(&req.wx_id, &req.content, req.create_time);
+    let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    info!(
+        "/register\nid = {id}, wxId = {}, createTime = {}, content = {}",
+        req.wx_id, req.create_time, req.content
+    );
+
+    state
+        .db
+        .execute(
+            "INSERT INTO messages (id, wx_id, content, timestamp) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(id) DO NOTHING",
+            libsql::params![id.as_str(), req.wx_id.as_str(), req.content.as_str(), now],
+        )
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("register failed: {e}")))?;
+
+    Ok(Json(RegisterResponse { id }))
+}
+
+/// Serves the 1x1 transparent PNG and logs the reader's IP against the message
+/// id. The reader's wxId is never observable here, so identity is approximated
+/// by distinct IP at count time.
 async fn serve_tracking_pixel(
     State(state): State<Arc<AppState>>,
-    Query(params): Query<TrackingPixelParams>,
+    Query(params): Query<ReadParams>,
     ConnectInfo(remote_addr): ConnectInfo<SocketAddr>,
 ) -> impl IntoResponse {
     let client_ip = remote_addr.ip().to_string();
     let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    if let Some(uuid) = &params.uuid {
-        let msg = params.decoded_msg();
+    match (&params.wx_id, &params.id) {
+        (Some(wx_id), Some(id)) => {
+            info!("/pixel request\nid = {id}, wxId = {wx_id}, client_ip = {client_ip}");
 
-        info!("/pixel request\nuuid = {uuid}, msg = {msg}, client_ip = {client_ip}");
-
-        if let Err(e) = state
-            .db
-            .execute(
-                "INSERT INTO hits (uuid, ip, msg, timestamp) VALUES (?1, ?2, ?3, ?4)",
-                (uuid.as_str(), client_ip, msg.as_str(), now),
-            )
-            .await
-        {
-            error!("failed to log hit: {e}");
+            if let Err(e) = state
+                .db
+                .execute(
+                    "INSERT INTO reads (id, wx_id, ip, timestamp) VALUES (?1, ?2, ?3, ?4)",
+                    libsql::params![id.as_str(), wx_id.as_str(), client_ip, now],
+                )
+                .await
+            {
+                error!("failed to log read: {e}");
+            }
         }
-    } else {
-        warn!("/pixel request without 'uuid' query parameter — hit not logged");
+        _ => {
+            warn!("/pixel request missing 'wxId' or 'id' query parameter — read not logged");
+        }
     }
 
     Response::builder()
@@ -754,152 +849,194 @@ async fn serve_tracking_pixel(
         .unwrap()
 }
 
-/// Returns every recorded read receipt, newest first.
-/// Supports optional `?q=` query parameter to filter by message text content.
-async fn list_all_receipts(
+/// Returns the deduped-by-IP read count for a `(wxId, id)` pair. Polled by the
+/// sender's client to render the live "已读 x 人" indicator.
+async fn read_count(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ReadParams>,
+) -> Result<Json<CountResponse>, (StatusCode, String)> {
+    let (wx_id, id) = match (params.wx_id, params.id) {
+        (Some(w), Some(i)) => (w, i),
+        _ => return Err((StatusCode::BAD_REQUEST, "wxId and id are required".to_string())),
+    };
+
+    let mut rows = state
+        .db
+        .query(
+            "SELECT COUNT(DISTINCT ip) FROM reads WHERE id = ?1 AND wx_id = ?2",
+            libsql::params![id, wx_id],
+        )
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("query failed: {e}")))?;
+
+    let count = match rows.next().await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("row read failed: {e}"))
+    })? {
+        Some(row) => match row.get_value(0) {
+            Ok(libsql::Value::Integer(n)) => n,
+            _ => 0,
+        },
+        None => 0,
+    };
+
+    Ok(Json(CountResponse { count }))
+}
+
+/// Returns every registered message with its deduped-by-IP read count, newest first.
+/// Supports optional `?q=` query parameter to filter by message content.
+async fn list_messages(
     State(state): State<Arc<AppState>>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<Vec<HitRecord>>, (StatusCode, String)> {
+) -> Result<Json<Vec<MessageRecord>>, (StatusCode, String)> {
     let q = params.get("q").map(|s| s.as_str()).unwrap_or("");
 
     let mut rows = if q.is_empty() {
         state
             .db
             .query(
-                "SELECT uuid, ip, msg, timestamp FROM hits ORDER BY timestamp DESC",
+                "SELECT m.id, m.wx_id, m.content, m.timestamp,
+                        (SELECT COUNT(DISTINCT r.ip) FROM reads r WHERE r.id = m.id) AS reads
+                 FROM messages m ORDER BY m.timestamp DESC",
                 (),
             )
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("query failed: {e}"),
-                )
-            })?
     } else {
         state
             .db
             .query(
-                "SELECT uuid, ip, msg, timestamp FROM hits WHERE msg LIKE ?1 ORDER BY timestamp DESC",
+                "SELECT m.id, m.wx_id, m.content, m.timestamp,
+                        (SELECT COUNT(DISTINCT r.ip) FROM reads r WHERE r.id = m.id) AS reads
+                 FROM messages m WHERE m.content LIKE ?1 ORDER BY m.timestamp DESC",
                 libsql::params![format!("%{}%", q)],
             )
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("query failed: {e}"),
-                )
-            })?
-    };
-
-    let mut receipts = Vec::new();
-    while let Some(row) = rows.next().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("row read failed: {e}"),
-        )
-    })? {
-        receipts.push(HitRecord {
-            uuid: row.get_str(0).unwrap_or_default().to_string(),
-            ip: row.get_str(1).unwrap_or_default().to_string(),
-            msg: row.get_str(2).unwrap_or_default().to_string(),
-            timestamp: row.get_str(3).unwrap_or_default().to_string(),
-        });
     }
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("query failed: {e}")))?;
 
-    Ok(Json(receipts))
+    collect_messages(&mut rows).await
 }
 
-/// Returns all read receipts for a specific UUID, newest first.
-/// Supports optional `?q=` query parameter to filter by message text content.
-async fn list_receipts_for_uuid(
+/// Returns all messages sent by a specific wxId with their read counts, newest first.
+/// Supports optional `?q=` query parameter to filter by message content.
+async fn list_messages_for_sender(
     State(state): State<Arc<AppState>>,
-    Path(uuid): Path<String>,
+    Path(wx_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<Vec<HitRecord>>, (StatusCode, String)> {
+) -> Result<Json<Vec<MessageRecord>>, (StatusCode, String)> {
     let q = params.get("q").map(|s| s.as_str()).unwrap_or("");
 
     let mut rows = if q.is_empty() {
         state
             .db
             .query(
-                "SELECT uuid, ip, msg, timestamp FROM hits WHERE uuid = ?1 ORDER BY timestamp DESC",
-                libsql::params![uuid],
+                "SELECT m.id, m.wx_id, m.content, m.timestamp,
+                        (SELECT COUNT(DISTINCT r.ip) FROM reads r WHERE r.id = m.id) AS reads
+                 FROM messages m WHERE m.wx_id = ?1 ORDER BY m.timestamp DESC",
+                libsql::params![wx_id],
             )
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("query failed: {e}"),
-                )
-            })?
     } else {
         state
             .db
             .query(
-                "SELECT uuid, ip, msg, timestamp FROM hits WHERE uuid = ?1 AND msg LIKE ?2 ORDER BY timestamp DESC",
-                libsql::params![uuid, format!("%{}%", q)],
+                "SELECT m.id, m.wx_id, m.content, m.timestamp,
+                        (SELECT COUNT(DISTINCT r.ip) FROM reads r WHERE r.id = m.id) AS reads
+                 FROM messages m WHERE m.wx_id = ?1 AND m.content LIKE ?2 ORDER BY m.timestamp DESC",
+                libsql::params![wx_id, format!("%{}%", q)],
             )
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("query failed: {e}"),
-                )
-            })?
-    };
+    }
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("query failed: {e}")))?;
 
-    let mut receipts = Vec::new();
+    collect_messages(&mut rows).await
+}
+
+/// Drains a message result set (5 columns: id, wx_id, content, timestamp, reads) into [`MessageRecord`]s.
+async fn collect_messages(
+    rows: &mut libsql::Rows,
+) -> Result<Json<Vec<MessageRecord>>, (StatusCode, String)> {
+    let mut messages = Vec::new();
     while let Some(row) = rows.next().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("row read failed: {e}"),
-        )
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("row read failed: {e}"))
     })? {
-        receipts.push(HitRecord {
-            uuid: row.get_str(0).unwrap_or_default().to_string(),
-            ip: row.get_str(1).unwrap_or_default().to_string(),
-            msg: row.get_str(2).unwrap_or_default().to_string(),
+        messages.push(MessageRecord {
+            id: row.get_str(0).unwrap_or_default().to_string(),
+            wx_id: row.get_str(1).unwrap_or_default().to_string(),
+            content: row.get_str(2).unwrap_or_default().to_string(),
             timestamp: row.get_str(3).unwrap_or_default().to_string(),
+            reads: match row.get_value(4) {
+                Ok(libsql::Value::Integer(n)) => n,
+                _ => 0,
+            },
+        });
+    }
+    Ok(Json(messages))
+}
+
+/// Returns the individual read events (distinct by IP, newest first) for one message id.
+async fn list_reads_for_message(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<ReadRecord>>, (StatusCode, String)> {
+    let mut rows = state
+        .db
+        .query(
+            "SELECT ip, MAX(timestamp) AS timestamp FROM reads WHERE id = ?1
+             GROUP BY ip ORDER BY timestamp DESC",
+            libsql::params![id],
+        )
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("query failed: {e}")))?;
+
+    let mut reads = Vec::new();
+    while let Some(row) = rows.next().await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("row read failed: {e}"))
+    })? {
+        reads.push(ReadRecord {
+            ip: row.get_str(0).unwrap_or_default().to_string(),
+            timestamp: row.get_str(1).unwrap_or_default().to_string(),
         });
     }
 
-    Ok(Json(receipts))
+    Ok(Json(reads))
 }
 
-/// Deletes ALL read receipts from the database.
-async fn delete_all_receipts(
+/// Deletes ALL messages and their reads from the database.
+async fn delete_all_messages(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     state
         .db
-        .execute("DELETE FROM hits", ())
+        .execute("DELETE FROM reads", ())
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("delete failed: {e}"),
-            )
-        })?;
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("delete failed: {e}")))?;
+    state
+        .db
+        .execute("DELETE FROM messages", ())
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("delete failed: {e}")))?;
 
     Ok(Json(serde_json::json!({"status": "ok"})))
 }
 
-/// Deletes all read receipts for a specific UUID.
-async fn delete_receipts_for_uuid(
+/// Deletes all messages sent by a specific wxId and their associated reads.
+async fn delete_messages_for_sender(
     State(state): State<Arc<AppState>>,
-    Path(uuid): Path<String>,
+    Path(wx_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     state
         .db
-        .execute("DELETE FROM hits WHERE uuid = ?1", libsql::params![uuid])
+        .execute(
+            "DELETE FROM reads WHERE id IN (SELECT id FROM messages WHERE wx_id = ?1)",
+            libsql::params![wx_id.clone()],
+        )
         .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("delete failed: {e}"),
-            )
-        })?;
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("delete failed: {e}")))?;
+    state
+        .db
+        .execute("DELETE FROM messages WHERE wx_id = ?1", libsql::params![wx_id])
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("delete failed: {e}")))?;
 
     Ok(Json(serde_json::json!({"status": "ok"})))
 }

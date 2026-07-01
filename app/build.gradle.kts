@@ -282,7 +282,6 @@ dependencies {
     implementation(libs.composablehorizons.material.symbols.filled)
     implementation(libs.composablehorizons.material.symbols.outlined)
 
-//    implementation(libs.google.guava)
     implementation(libs.google.protobuf.javalite)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.serialization.protobuf)
