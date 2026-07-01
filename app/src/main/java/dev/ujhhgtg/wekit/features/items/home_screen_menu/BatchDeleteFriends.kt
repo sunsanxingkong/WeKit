@@ -32,10 +32,9 @@ import dev.ujhhgtg.wekit.ui.utils.PersonRemoveIcon
 import dev.ujhhgtg.wekit.ui.utils.showComposeDialog
 import dev.ujhhgtg.wekit.utils.WeLogger
 import dev.ujhhgtg.wekit.utils.android.getTopMostActivity
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 @Feature(
     name = "批量删除好友",
@@ -46,6 +45,7 @@ object BatchDeleteFriends : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItems
     private val TAG = nameOf(BatchDeleteFriends::class)
     private var deleteMode by WePrefs.prefOption("batch_delete_friends_mode", 0)
     private var deleteInterval by WePrefs.prefOption("batch_delete_friends_interval", 1000)
+    private val executor = Executors.newSingleThreadExecutor()
 
     override fun onEnable() { WeHomeScreenPopupMenuApi.addProvider(this) }
     override fun onDisable() { WeHomeScreenPopupMenuApi.removeProvider(this) }
@@ -80,7 +80,6 @@ object BatchDeleteFriends : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItems
                             when (phase) {
                                 0 -> {
                                     Column(Modifier.size(360.dp, 480.dp)) {
-                                        // 搜索框
                                         OutlinedTextField(
                                             value = searchQuery,
                                             onValueChange = { searchQuery = it },
@@ -198,31 +197,37 @@ object BatchDeleteFriends : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItems
         )
     }
 
-    // 使用上游已验证的 fire-and-forget 模式，不阻塞等待回调
+    // 用独立线程执行，避免阻塞 Dispatchers.IO（sendCgi 内部也用 IO 线程池）
     private fun startDeletion(ctx: Context, targets: List<WeContact>, mode: Int, intervalMs: Int, onProgress: (Int, Int, List<String>) -> Unit) {
-        CoroutineScope(Dispatchers.IO).launch {
+        executor.execute {
             var done = 0
             val fails = mutableListOf<String>()
             for (t in targets) {
+                val latch = CountDownLatch(1)
+                var ok = false
                 try {
                     val body = if (mode == 0) """{"2":"${t.wxId.replace("'","''")}","4":1}"""
                         else """{"2":"${t.wxId.replace("'","''")}","4":3}"""
-                    WeLogger.i(TAG, "deleting ${t.wxId} mode=$mode body=$body")
+                    WeLogger.i(TAG, "deleting ${t.wxId} mode=$mode")
                     WePacketHelper.sendCgi("/cgi-bin/micromsg-bin/deletecontact", 376, 0, 0, body) {
                         onSuccess { json, _ ->
-                            WeLogger.i(TAG, "delete ${t.wxId} success: ${json.take(100)}")
+                            WeLogger.i(TAG, "delete ${t.wxId} success")
+                            ok = true; latch.countDown()
                         }
                         onFailure { errType, errCode, errMsg ->
-                            WeLogger.w(TAG, "delete ${t.wxId} failed: errType=$errType errCode=$errCode errMsg=$errMsg")
+                            WeLogger.w(TAG, "delete ${t.wxId} failed: $errType,$errCode,$errMsg")
+                            ok = false; latch.countDown()
                         }
                     }
+                    latch.await(15, TimeUnit.SECONDS)
                 } catch (e: Exception) {
                     WeLogger.e(TAG, "delete ${t.wxId} error", e)
-                    fails.add(t.displayName.ifEmpty { t.wxId })
+                    latch.countDown()
                 }
+                if (!ok) fails.add(t.displayName.ifEmpty { t.wxId })
                 done++
                 onProgress(done, targets.size, fails.toList())
-                delay(intervalMs.toLong())
+                try { Thread.sleep(intervalMs.toLong()) } catch (_: InterruptedException) { break }
             }
         }
     }

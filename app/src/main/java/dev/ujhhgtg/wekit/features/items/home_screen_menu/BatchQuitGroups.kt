@@ -32,10 +32,9 @@ import dev.ujhhgtg.wekit.ui.utils.GroupRemoveIcon
 import dev.ujhhgtg.wekit.ui.utils.showComposeDialog
 import dev.ujhhgtg.wekit.utils.WeLogger
 import dev.ujhhgtg.wekit.utils.android.getTopMostActivity
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 @Feature(
     name = "批量退出群聊",
@@ -45,6 +44,7 @@ import kotlinx.coroutines.launch
 object BatchQuitGroups : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItemsProvider {
     private val TAG = nameOf(BatchQuitGroups::class)
     private var quitInterval by WePrefs.prefOption("batch_quit_groups_interval", 1500)
+    private val executor = Executors.newSingleThreadExecutor()
 
     override fun onEnable() { WeHomeScreenPopupMenuApi.addProvider(this) }
     override fun onDisable() { WeHomeScreenPopupMenuApi.removeProvider(this) }
@@ -178,28 +178,34 @@ object BatchQuitGroups : SwitchFeature(), WeHomeScreenPopupMenuApi.IMenuItemsPro
     }
 
     private fun startQuit(ctx: Context, targets: List<WeGroup>, intervalMs: Int, onProgress: (Int, Int, List<String>) -> Unit) {
-        CoroutineScope(Dispatchers.IO).launch {
+        executor.execute {
             var done = 0
             val fails = mutableListOf<String>()
             for (t in targets) {
+                val latch = CountDownLatch(1)
+                var ok = false
                 try {
                     val body = """{"2":"${t.wxId.replace("'","''")}"}"""
-                    WeLogger.i(TAG, "quitting ${t.wxId} body=$body")
+                    WeLogger.i(TAG, "quitting ${t.wxId}")
                     WePacketHelper.sendCgi("/cgi-bin/micromsg-bin/quitchatroom", 343, 0, 0, body) {
                         onSuccess { json, _ ->
-                            WeLogger.i(TAG, "quit ${t.wxId} success: ${json.take(100)}")
+                            WeLogger.i(TAG, "quit ${t.wxId} success")
+                            ok = true; latch.countDown()
                         }
                         onFailure { errType, errCode, errMsg ->
-                            WeLogger.w(TAG, "quit ${t.wxId} failed: errType=$errType errCode=$errCode errMsg=$errMsg")
+                            WeLogger.w(TAG, "quit ${t.wxId} failed: $errType,$errCode,$errMsg")
+                            ok = false; latch.countDown()
                         }
                     }
+                    latch.await(15, TimeUnit.SECONDS)
                 } catch (e: Exception) {
                     WeLogger.e(TAG, "quit ${t.wxId} error", e)
-                    fails.add(t.nickname.ifEmpty { t.wxId })
+                    latch.countDown()
                 }
+                if (!ok) fails.add(t.nickname.ifEmpty { t.wxId })
                 done++
                 onProgress(done, targets.size, fails.toList())
-                delay(intervalMs.toLong())
+                try { Thread.sleep(intervalMs.toLong()) } catch (_: InterruptedException) { break }
             }
         }
     }

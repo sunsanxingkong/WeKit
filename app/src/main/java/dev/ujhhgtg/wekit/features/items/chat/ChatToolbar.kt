@@ -17,17 +17,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Icon
@@ -83,7 +78,6 @@ import dev.ujhhgtg.wekit.dexkit.dsl.dexMethod
 import dev.ujhhgtg.wekit.features.api.ui.WeCurrentConversationApi
 import dev.ujhhgtg.wekit.features.core.ClickableFeature
 import dev.ujhhgtg.wekit.features.core.Feature
-import dev.ujhhgtg.wekit.features.items.chat.ai.AiReplyHelper
 import dev.ujhhgtg.wekit.preferences.WePrefs
 import dev.ujhhgtg.wekit.ui.content.AlertDialogContent
 import dev.ujhhgtg.wekit.ui.content.Button
@@ -100,7 +94,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import java.lang.ref.WeakReference
 
 @SuppressLint("StaticFieldLeak")
-@Feature(name = "聊天工具栏", categories = ["聊天"], description = "在输入框上方添加工具栏 (点击配置); 支持 AI 回复")
+@Feature(name = "聊天工具栏", categories = ["聊天"], description = "在输入框上方添加工具栏 (点击配置)")
 object ChatToolbar : ClickableFeature(), IResolveDex {
     private val TAG = This.Class.simpleName
     private val NAME_TO_ICON_MAP = mapOf(
@@ -120,9 +114,6 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
         "名片" to MaterialSymbols.Outlined.Account_box,
         "音乐" to MaterialSymbols.Outlined.Music_note
     )
-
-    const val AI_REPLY_KEY = "AI 回复"
-    const val AI_SETTINGS_KEY = "AI 配置"
 
     private val methodAppPanelInitAppGrid by dexMethod {
         matcher {
@@ -151,11 +142,11 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
     private val toolsState = MutableStateFlow<List<Pair<String, MenuItem>>>(emptyList())
     private var itemsOrder by WePrefs.prefOption(
         "chat_toolbar_order",
-        (NAME_TO_ICON_MAP.keys.joinToString(",") + "," + AI_REPLY_KEY + "," + AI_SETTINGS_KEY)
+        NAME_TO_ICON_MAP.keys.joinToString(",")
     )
     private var enabledItems by WePrefs.prefOption(
         "chat_toolbar_enabled_items",
-        NAME_TO_ICON_MAP.keys + AI_REPLY_KEY + AI_SETTINGS_KEY
+        NAME_TO_ICON_MAP.keys
     )
 
     override fun onEnable() {
@@ -263,14 +254,6 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
                                         })
                                     }
                                 }
-                                // ── AI 回复芯片 ──
-                                list.add(AI_REPLY_KEY to {
-                                    AiReplyHelper.replyToCurrentConversation(activity)
-                                })
-                                // ── AI 配置入口 ──
-                                list.add(AI_SETTINGS_KEY to {
-                                    showAiConfigDialog(activity)
-                                })
 
                                 list.filter { it.first in enabledItems }
                                     .sortedBy { item ->
@@ -284,11 +267,7 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
                                 contentPadding = PaddingValues(horizontal = 8.dp),
                             ) {
                                 items(sortedVisibleItems, key = { it.first }) { (name, onClick) ->
-                                    val icon = when (name) {
-                                        AI_REPLY_KEY -> MaterialSymbols.Outlined.Favorite
-                                        AI_SETTINGS_KEY -> MaterialSymbols.Outlined.Settings
-                                        else -> NAME_TO_ICON_MAP[name]!!
-                                    }
+                                    val icon = NAME_TO_ICON_MAP[name]!!
                                     FeatureChip(name, icon, onClick)
                                 }
                             }
@@ -307,7 +286,7 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
         showComposeDialog(context) {
             val currentOrder = remember {
                 val order = itemsOrder.split(",").filter { it.isNotEmpty() }.toMutableStateList()
-                (NAME_TO_ICON_MAP.keys + AI_REPLY_KEY + AI_SETTINGS_KEY).forEach {
+                NAME_TO_ICON_MAP.keys.forEach {
                     if (it !in order) order.add(it)
                 }
                 order
@@ -318,11 +297,7 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
                 text = {
                     LazyColumn(modifier = Modifier.size(height = 400.dp, width = 300.dp)) {
                         itemsIndexed(currentOrder) { index, name ->
-                            val icon = when (name) {
-                                AI_REPLY_KEY -> MaterialSymbols.Outlined.Favorite
-                                AI_SETTINGS_KEY -> MaterialSymbols.Outlined.Settings
-                                else -> NAME_TO_ICON_MAP[name]
-                            }
+                            val icon = NAME_TO_ICON_MAP[name]
                             ListItem(
                                 headlineContent = { Text(name) },
                                 leadingContent = {
@@ -369,111 +344,6 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
                         onDismiss()
                     }) {
                         Text("确定")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = onDismiss) {
-                        Text("取消")
-                    }
-                }
-            )
-        }
-    }
-
-    private fun showAiConfigDialog(context: Context) {
-        showComposeDialog(context) {
-            var apiUrl by remember { mutableStateOf(AiReplyHelper.apiUrl) }
-            var apiKey by remember { mutableStateOf(AiReplyHelper.apiKey) }
-            var model by remember { mutableStateOf(AiReplyHelper.model) }
-            var systemPrompt by remember { mutableStateOf(AiReplyHelper.systemPrompt) }
-            var temperature by remember { mutableFloatStateOf(AiReplyHelper.temperature) }
-            var maxTokens by remember { mutableIntStateOf(AiReplyHelper.maxTokens) }
-            var contextCount by remember { mutableIntStateOf(AiReplyHelper.contextCount) }
-
-            AlertDialogContent(
-                title = { Text("AI 回复配置") },
-                text = {
-                    Column(
-                        modifier = Modifier
-                            .size(height = 420.dp, width = 320.dp)
-                            .verticalScroll(rememberScrollState())
-                    ) {
-                        OutlinedTextField(
-                            value = apiUrl,
-                            onValueChange = { apiUrl = it },
-                            label = { Text("API 地址") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = apiKey,
-                            onValueChange = { apiKey = it },
-                            label = { Text("API Key") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = model,
-                            onValueChange = { model = it },
-                            label = { Text("模型名称") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            placeholder = { Text("gpt-4o-mini") }
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text("温度: ${String.format("%.1f", temperature)}")
-                        Slider(
-                            value = temperature,
-                            onValueChange = { temperature = it },
-                            valueRange = 0f..2f,
-                            steps = 19
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        OutlinedTextField(
-                            value = systemPrompt,
-                            onValueChange = { systemPrompt = it },
-                            label = { Text("系统提示词") },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(100.dp),
-                            maxLines = 4
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("上下文消息数: $contextCount")
-                            Spacer(Modifier.width(8.dp))
-                            Slider(
-                                value = contextCount.toFloat(),
-                                onValueChange = { contextCount = it.toInt() },
-                                valueRange = 1f..50f,
-                                steps = 48,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                        OutlinedTextField(
-                            value = maxTokens.toString(),
-                            onValueChange = { it.toIntOrNull()?.let { n -> maxTokens = n } },
-                            label = { Text("最大 Token") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                },
-                confirmButton = {
-                    Button(onClick = {
-                        AiReplyHelper.apiUrl = apiUrl
-                        AiReplyHelper.apiKey = apiKey
-                        AiReplyHelper.model = model
-                        AiReplyHelper.systemPrompt = systemPrompt
-                        AiReplyHelper.temperature = temperature
-                        AiReplyHelper.maxTokens = maxTokens
-                        AiReplyHelper.contextCount = contextCount
-                        onDismiss()
-                    }) {
-                        Text("保存")
                     }
                 },
                 dismissButton = {

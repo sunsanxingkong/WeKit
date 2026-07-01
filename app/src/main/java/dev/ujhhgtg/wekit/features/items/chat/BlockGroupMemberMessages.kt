@@ -58,7 +58,9 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
         )
     }
 
-    // ── 缓存被隐藏的消息 View（解除屏蔽后恢复可见性） ──
+    // ── 缓存被隐藏的消息 View ──
+    // groupId -> (sender -> list of hidden views)
+    // 解除屏蔽时保持缓存不清除，以便重新屏蔽时能恢复隐藏
     private val hiddenSendersCache = mutableMapOf<String, MutableMap<String, MutableList<View>>>()
 
     override fun onEnable() {
@@ -72,13 +74,13 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
                     val sender = msgInfo.sender
                     if (sender.isEmpty() || sender == "system") return
 
-                    // 1. 检查是否在手动屏蔽列表中
+                    // 1. 检查手动屏蔽列表
                     if (sender in getBlockedSet(groupId)) {
-                        cacheAndHide(view, groupId, sender)
+                        hideView(view, groupId, sender)
                         return
                     }
 
-                    // 2. 检查关键词自动屏蔽
+                    // 2. 关键词自动屏蔽
                     if (getKeywordBlockEnabled(groupId)) {
                         val keywords = getKeywords(groupId)
                         val targets = getKeywordTargets(groupId)
@@ -86,12 +88,12 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
                             val content = msgInfo.actualContent
                             for (kw in keywords) {
                                 if (content.contains(kw, ignoreCase = true)) {
-                                    // 自动屏蔽（写入 blocked set）
-                                    val blocked = getBlockedSet(groupId).toMutableSet()
-                                    blocked.add(sender)
-                                    saveBlockedSet(groupId, blocked)
+                                    getBlockedSet(groupId).toMutableSet().also {
+                                        it.add(sender)
+                                        saveBlockedSet(groupId, it)
+                                    }
                                     WeLogger.i(TAG, "auto-blocked $sender in $groupId due to keyword: $kw")
-                                    cacheAndHide(view, groupId, sender)
+                                    hideView(view, groupId, sender)
                                     return
                                 }
                             }
@@ -107,7 +109,8 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
         hiddenSendersCache.clear()
     }
 
-    private fun cacheAndHide(view: View, groupId: String, sender: String) {
+    // 隐藏 View 并缓存（缓存不清除，以便重新屏蔽时能恢复隐藏）
+    private fun hideView(view: View, groupId: String, sender: String) {
         synchronized(hiddenSendersCache) {
             hiddenSendersCache.getOrPut(groupId) { mutableMapOf() }
                 .getOrPut(sender) { mutableListOf() }.add(view)
@@ -120,7 +123,6 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
     private fun blockedPrefKey(groupId: String) = "blocked_members_$groupId"
     private fun keywordsPrefKey(groupId: String) = "block_keywords_$groupId"
     private fun targetsPrefKey(groupId: String) = "block_keyword_targets_$groupId"
-    private fun enabledPrefKey(groupId: String) = "block_keyword_enabled_$groupId"
 
     private fun getBlockedSet(groupId: String): Set<String>
         = WePrefs.getStringSetOrDef(blockedPrefKey(groupId), emptySet())
@@ -142,14 +144,30 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
     private fun setKeywordBlockEnabled(groupId: String, enabled: Boolean)
         = WePrefs.putBool(keywordsPrefKey(groupId) + "_enabled", enabled)
 
+    // 解除屏蔽：恢复 View 可见性，但保留在缓存中
     private fun unblockMember(groupId: String, wxId: String) {
         val set = getBlockedSet(groupId).toMutableSet()
         set.remove(wxId)
         saveBlockedSet(groupId, set)
-        // 恢复已缓存的该发送者所有消息的可见性
+        // 恢复该发送者所有已缓存 View 的可见性
         synchronized(hiddenSendersCache) {
-            hiddenSendersCache[groupId]?.remove(wxId)?.forEach { view ->
+            hiddenSendersCache[groupId]?.get(wxId)?.forEach { view ->
                 try { view.visibility = View.VISIBLE } catch (_: Exception) { }
+            }
+        }
+    }
+
+    // 屏蔽成员：除了保存到 pref 外，还遍历缓存重新隐藏已有 View
+    private fun blockMembersNow(groupId: String, wxIds: Set<String>) {
+        val set = getBlockedSet(groupId).toMutableSet()
+        set.addAll(wxIds)
+        saveBlockedSet(groupId, set)
+        // 对已缓存的该发送者的所有 View 重新隐藏
+        synchronized(hiddenSendersCache) {
+            for (wxId in wxIds) {
+                hiddenSendersCache[groupId]?.get(wxId)?.forEach { view ->
+                    try { view.visibility = View.GONE } catch (_: Exception) { }
+                }
             }
         }
     }
@@ -190,7 +208,7 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
     }
 
     // ═══════════════════════════════════════════════
-    // TAB 1: 屏蔽成员（手动选择屏蔽）
+    // TAB 1: 屏蔽成员
     // ═══════════════════════════════════════════════
 
     @Composable
@@ -308,10 +326,8 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
                     }
                     if (selectedToBlock.isNotEmpty()) {
                         Button(onClick = {
-                            val set = getBlockedSet(groupId).toMutableSet()
-                            set.addAll(selectedToBlock)
-                            saveBlockedSet(groupId, set)
-                            blockedSet.value = set
+                            blockMembersNow(groupId, selectedToBlock.toSet())
+                            blockedSet.value = getBlockedSet(groupId)
                             val count = selectedToBlock.size
                             selectedToBlock.clear()
                             innerTab = 0
@@ -324,7 +340,7 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
     }
 
     // ═══════════════════════════════════════════════
-    // TAB 2: 屏蔽关键词（设置关键词，自动屏蔽发送者）
+    // TAB 2: 屏蔽关键词
     // ═══════════════════════════════════════════════
     @Composable
     private fun KeywordTab(context: Context, groupId: String) {
@@ -337,8 +353,6 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
         var searchQuery by remember { mutableStateOf("") }
         val selectedTargets = remember { mutableStateListOf<String>() }
         val selectedForAddKw = remember { mutableStateListOf<String>() }
-
-        // 输入新关键词
         var newKeyword by remember { mutableStateOf("") }
 
         LaunchedEffect(Unit) {
@@ -364,7 +378,6 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
         Spacer(Modifier.height(4.dp))
 
         when (innerTab) {
-            // ── 关键词列表 ──
             0 -> {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("自动屏蔽", fontSize = 13.sp)
@@ -413,7 +426,6 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
                 }
             }
 
-            // ── 添加关键词 ──
             1 -> {
                 OutlinedTextField(
                     value = newKeyword,
@@ -494,7 +506,6 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
                     }
                     if (selectedForAddKw.isNotEmpty()) {
                         Button(onClick = {
-                            // 把选中成员的昵称关键词化加入关键词列表
                             val currentKws = getKeywords(groupId).toMutableSet()
                             selectedForAddKw.forEach { wxId ->
                                 val contact = members.value.find { it.wxId == wxId }
@@ -510,7 +521,6 @@ object BlockGroupMemberMessages : SwitchFeature(), WeConversationContextMenuApi.
                 }
             }
 
-            // ── 选择监控对象 ──
             2 -> {
                 if (!loaded) {
                     Text("加载成员中...", modifier = Modifier.padding(16.dp))
