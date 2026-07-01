@@ -9,6 +9,7 @@ import dev.ujhhgtg.wekit.dexkit.dsl.dexMethod
 import dev.ujhhgtg.wekit.features.core.ApiFeature
 import dev.ujhhgtg.wekit.features.core.Feature
 import dev.ujhhgtg.wekit.utils.WeLogger
+import dev.ujhhgtg.wekit.utils.android.runOnUiThread
 
 @Feature(name = "对话服务", categories = ["API"], description = "提供对话管理能力")
 object WeConversationApi : ApiFeature(), IResolveDex {
@@ -270,10 +271,19 @@ object WeConversationApi : ApiFeature(), IResolveDex {
 //    }
 
     fun reloadConversations() {
-        try {
-            notifyConversationChanged("", 5)
-        } catch (ex: Exception) {
-            WeLogger.w(TAG, "exception while notifying conversation list reload", ex)
+        // notifyConversationChanged dispatches to WeChat's conversation-list UI observers.
+        // WeChat's MStorage dispatcher (s85.v0.e) iterates and invokes some listeners
+        // synchronously on the calling thread, so calling this off the main thread mutates
+        // list adapters from a background thread and triggers ListView's
+        // "content of the adapter has changed but ListView did not receive a notification"
+        // crash. Callers like AggregateChats' folder-refresh run on a worker thread, so
+        // always marshal the notify onto the main thread.
+        runOnUiThread {
+            try {
+                notifyConversationChanged("", 5)
+            } catch (ex: Exception) {
+                WeLogger.w(TAG, "exception while notifying conversation list reload", ex)
+            }
         }
     }
 

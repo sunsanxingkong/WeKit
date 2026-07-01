@@ -141,7 +141,7 @@ object WeMessageApi : ApiFeature(), IResolveDex {
     }
     private val classImportMultiVideo by dexClass {
         matcher {
-            usingEqStrings("MicroMsg.ImportMultiVideo", "importVideo, target videoPath: ")
+            usingEqStrings("MicroMsg.GetVideoMetadata", "get video file name, dataString ")
         }
     }
     private val classAppMessage by dexClass {

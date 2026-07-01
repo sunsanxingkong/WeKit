@@ -2,9 +2,11 @@ package dev.ujhhgtg.wekit.features.api.ui
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
+import androidx.core.widget.doAfterTextChanged
 import com.tencent.mm.plugin.setting.ui.setting.SettingsUI
 import com.tencent.mm.plugin.setting.ui.setting_new.base.BaseSettingPrefUI
 import com.tencent.mm.plugin.setting.ui.setting_new.base.BaseSettingUI
@@ -12,8 +14,10 @@ import com.tencent.mm.plugin.setting.ui.setting_new.settings.SettingAdditionHead
 import com.tencent.mm.plugin.setting.ui.setting_new.settings.SettingGroupAccountInfo
 import com.tencent.mm.plugin.setting.ui.setting_new.settings.SettingGroupMain
 import com.tencent.mm.plugin.setting.ui.setting_new.settings.SettingGroupPersonalInfo
+import com.tencent.mm.pluginsdk.ui.chat.ChatFooter
 import com.tencent.mm.ui.LauncherUI
 import com.tencent.mm.ui.base.preference.IconPreference
+import com.tencent.mm.ui.widget.MMEditText
 import dev.ujhhgtg.comptime.This
 import dev.ujhhgtg.reflekt.reflekt
 import dev.ujhhgtg.reflekt.utils.isBuiltin
@@ -41,6 +45,13 @@ object WeSettingsInjector : ApiFeature(), IResolveDex {
     private val methodSetTitle by dexMethod()
     private val methodGetKey by dexMethod()
     private val methodAddPref by dexMethod()
+
+    private val methodChatFooterBindEditText by dexMethod {
+        matcher {
+            declaredClass ="com.tencent.mm.pluginsdk.ui.chat.ChatFooter"
+            usingEqStrings("MicroMsg.ChatFooter", "transVoiceBlurMode: %s.")
+        }
+    }
 
     // method 2
     private val classSettingItemClassesProvider by dexClass(allowFailure = true) {
@@ -116,39 +127,39 @@ object WeSettingsInjector : ApiFeature(), IResolveDex {
             usingEqStrings("MicroMsg.ResourceHelper", "get string, resId %d, but context is null")
         }
     }
-    private val methodPluginHelperLaunchIntent by dexMethod(allowFailure = true) {
-        matcher {
-            usingEqStrings("MicroMsg.PluginHelper", "start activity, need try load plugin[%B], entry:%s", "start activity error, context is null")
-        }
-    }
-    // FIXME: using multipleIndex here, might find the wrong class
-    private val classIntentAction by dexClass(allowFailure = true, allowMultiple = true, multipleIndex = 1) {
-        searchPackages("com.tencent.mm.plugin.setting.ui.setting_new.uic")
-        matcher {
-            addMethod {
-                name = "<init>"
-                usingEqStrings("activity")
-            }
-
-            addMethod {
-                name = "onCreate"
-            }
-
-            addMethod {
-                name = "onDestroy"
-            }
-
-            addMethod {
-                name = "onResume"
-            }
-
-            superClass {
-                superClass {
-                    className = "com.tencent.mm.ui.component.UIComponent"
-                }
-            }
-        }
-    }
+//    private val methodPluginHelperLaunchIntent by dexMethod(allowFailure = true) {
+//        matcher {
+//            usingEqStrings("MicroMsg.PluginHelper", "start activity, need try load plugin[%B], entry:%s", "start activity error, context is null")
+//        }
+//    }
+//    // FIXME: using multipleIndex here, might find the wrong class
+//    private val classIntentAction by dexClass(allowFailure = true, allowMultiple = true, multipleIndex = 1) {
+//        searchPackages("com.tencent.mm.plugin.setting.ui.setting_new.uic")
+//        matcher {
+//            addMethod {
+//                name = "<init>"
+//                usingEqStrings("activity")
+//            }
+//
+//            addMethod {
+//                name = "onCreate"
+//            }
+//
+//            addMethod {
+//                name = "onDestroy"
+//            }
+//
+//            addMethod {
+//                name = "onResume"
+//            }
+//
+//            superClass {
+//                superClass {
+//                    className = "com.tencent.mm.ui.component.UIComponent"
+//                }
+//            }
+//        }
+//    }
 
     private val TAG = This.Class.simpleName
 
@@ -228,11 +239,31 @@ object WeSettingsInjector : ApiFeature(), IResolveDex {
     override fun onEnable() {
         hookLauncherUi()
 
+        hookChatInputBar()
+
         injectLegacy()
 
         // injectModernMethod1()
         injectModernMethod2()
         // injectModernMethod3()
+    }
+
+    private fun hookChatInputBar() {
+        methodChatFooterBindEditText.hookBefore {
+            val chatFooter = thisObject as ChatFooter
+
+            val editText = thisObject.reflekt().firstField {
+                type = MMEditText::class
+            }.get()!! as MMEditText
+
+            WeLogger.d(TAG, "modified chatfooter")
+
+            editText.doAfterTextChanged { _ ->
+                WeLogger.d(TAG, chatFooter.lastText)
+                if (chatFooter.lastText != "#wekit") return@doAfterTextChanged
+                openSettingsDialog(chatFooter.context)
+            }
+        }
     }
 
     private fun injectLegacy() {
@@ -550,8 +581,8 @@ object WeSettingsInjector : ApiFeature(), IResolveDex {
     }
 
     @Suppress("NOTHING_TO_INLINE")
-    inline fun openSettingsDialog(activity: Activity) {
-        MainSettingsScreen().show(activity)
+    inline fun openSettingsDialog(context: Context) {
+        MainSettingsScreen().show(context)
     }
 
 //    private class SettingsMenuItemClickListener(val context: Context) :
