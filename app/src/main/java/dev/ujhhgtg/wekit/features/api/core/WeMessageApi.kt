@@ -944,6 +944,21 @@ object WeMessageApi : ApiFeature(), IResolveDex {
         return methodGetAmrFullPath.method.invoke(service, null, encPath, true) as String
     }
 
+    // WeChat marks a received voice message as read (clearing the unplayed red dot) by
+    // flipping the played flag inside the voice content string and persisting it — see
+    // w21.x0.q(MsgInfo) (classVoiceLogic), the only static void(MsgInfo) method in that class,
+    // invoked from AutoPlay.startPlay before playback. We call it directly so features that
+    // consume a voice message without going through playback (e.g. auto speech-to-text) can
+    // clear the red dot the same way WeChat would.
+    fun markVoicePlayed(msgInfo: MessageInfo) {
+        classVoiceLogic.clazz.reflekt()
+            .firstMethod {
+                parameters(classMsgInfo.clazz)
+                returnType = void
+                modifiers(Modifiers.STATIC)
+            }.invokeStatic(msgInfo.instance)
+    }
+
     fun sendVoice(toUser: String, path: String, durationMs: Int): Boolean {
         var succeeded = runCatching {
 //             // 尝试通过 ServiceManager 获取
