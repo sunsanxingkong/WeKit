@@ -62,7 +62,7 @@ object MonetEngine : ClickableFeature() {
             return
         }
 
-        if (MonetEngineModuleGenerator.isEnabled) return
+//        if (MonetEngineModuleGenerator.isEnabled) return
 
         "com.tencent.mm.ui.widget.MMSwitchBtn".toClass().constructors.forEach {
             it.hookAfter {

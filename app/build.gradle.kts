@@ -198,19 +198,19 @@ androidComponents {
             EmbedErudaTask::outputDir
         )
 
-        val embedMonetAssets = tasks.register<EmbedMonetAssetsTask>("embedMonetAssets$variantName") {
-            group = "wekit"
-            description = "Embed Monet overlay templates/tables as byte-array constants for $variantName"
-
-            inputDir.set(layout.projectDirectory.dir("embedded/monet"))
-            outputDir.set(layout.buildDirectory.dir("generated/source/monet/${variant.name}"))
-            namespace.set(libs.versions.namespace.get())
-        }
-
-        kotlinSources.addGeneratedSourceDirectory(
-            embedMonetAssets,
-            EmbedMonetAssetsTask::outputDir
-        )
+//        val embedMonetAssets = tasks.register<EmbedMonetAssetsTask>("embedMonetAssets$variantName") {
+//            group = "wekit"
+//            description = "Embed Monet overlay templates/tables as byte-array constants for $variantName"
+//
+//            inputDir.set(layout.projectDirectory.dir("embedded/monet"))
+//            outputDir.set(layout.buildDirectory.dir("generated/source/monet/${variant.name}"))
+//            namespace.set(libs.versions.namespace.get())
+//        }
+//
+//        kotlinSources.addGeneratedSourceDirectory(
+//            embedMonetAssets,
+//            EmbedMonetAssetsTask::outputDir
+//        )
     }
 }
 
@@ -317,10 +317,10 @@ dependencies {
     implementation(project(":libs:common:reflekt"))
     implementation(libs.libsu.core)
     implementation(libs.dexmaker)
-    implementation(libs.arsclib)
-    implementation(libs.apksig)
-    implementation(libs.bouncycastle.prov)
-    implementation(libs.bouncycastle.pkix)
+//    implementation(libs.arsclib)
+//    implementation(libs.apksig)
+//    implementation(libs.bouncycastle.prov)
+//    implementation(libs.bouncycastle.pkix)
     @Suppress("AvoidDuplicateDependencies")
     implementation(project(":libs:common:annotation-scanner"))
     @Suppress("AvoidDuplicateDependencies")
