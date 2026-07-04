@@ -65,12 +65,9 @@ android {
             isEnable = true
             reset()
             include(
-                "arm64-v8a",
-                "armeabi-v7a",
-//                "x86_64",
-//                "x86"
+                "arm64-v8a"
             )
-            isUniversalApk = true
+            isUniversalApk = false
         }
     }
 
@@ -228,10 +225,7 @@ val rustProjectDir = file("src/main/rust/wekit-native")
 val rustLibName = "libwekit_native.so"
 
 val abiToTarget = mapOf(
-    "arm64-v8a" to "aarch64-linux-android",
-    "armeabi-v7a" to "armv7-linux-androideabi",
-//    "x86_64" to "x86_64-linux-android",
-//    "x86" to "i686-linux-android"
+    "arm64-v8a" to "aarch64-linux-android"
 )
 val cargoTasks = abiToTarget.map { (abi, target) ->
     val soSrcFile = rustProjectDir.resolve("target/$target/release/$rustLibName")
