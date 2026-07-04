@@ -1,6 +1,5 @@
 package dev.ujhhgtg.wekit.features.items.system
 
-import android.app.ActivityThread
 import android.content.Context
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Text
@@ -9,7 +8,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import de.robv.android.xposed.XposedHelpers
 import dev.ujhhgtg.wekit.dexkit.abc.IResolveDex
 import dev.ujhhgtg.wekit.dexkit.dsl.dexMethod
 import dev.ujhhgtg.wekit.features.api.ui.WeCurrentConversationApi
@@ -33,7 +31,6 @@ object WeixinTeamSysMsg : ClickableFeature(), IResolveDex {
             usingEqStrings("MicroMsg.HoneyPayUtil", "insert sys msg: %s, %s")
         }
     }
-    private var sysMsgClass: Class<*>? = null
 
     override fun onEnable() {}
 
@@ -70,15 +67,9 @@ object WeixinTeamSysMsg : ClickableFeature(), IResolveDex {
 
     private fun send(sender: String, content: String) {
         try {
-            if (sysMsgClass == null) {
-                val app = ActivityThread.currentApplication()
-                if (app != null) {
-                    sysMsgClass = XposedHelpers.findClassIfExists(methodInsertSysMsg.className, app.classLoader)
-                }
-            }
-            sysMsgClass?.let { cls ->
-                XposedHelpers.callStaticMethod(cls, methodInsertSysMsg.name, sender, content, "")
-            }
+            val m = methodInsertSysMsg.method
+            m.isAccessible = true
+            m.invoke(null, sender, content, "")
         } catch (e: Exception) {
             WeLogger.e("WeixinTeamSysMsg", "send failed", e)
         }
