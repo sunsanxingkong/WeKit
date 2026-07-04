@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -34,6 +35,8 @@ import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
@@ -92,6 +95,7 @@ import dev.ujhhgtg.wekit.ui.utils.iterable
 import dev.ujhhgtg.wekit.ui.utils.setLifecycleOwner
 import dev.ujhhgtg.wekit.ui.utils.showComposeDialog
 import dev.ujhhgtg.wekit.utils.WeLogger
+import dev.ujhhgtg.wekit.utils.android.showToast
 import dev.ujhhgtg.wekit.utils.reflection.BInt
 import dev.ujhhgtg.wekit.utils.reflection.int
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -566,9 +570,6 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
                 }
             )
         }
-    }
-}
-
 private fun showAiReplyDialog(context: Context) {
         showComposeDialog(context) {
             var prompt by remember { mutableStateOf("") }
@@ -653,8 +654,8 @@ private fun showAiReplyDialog(context: Context) {
                         val talker = WeCurrentConversationApi.value
                         onDismiss()
                         if (talker.isNullOrEmpty()) return@Button
-                        val msg = if (sender.isNotBlank()) "[${sender}] $content" else "[系统消息] $content"
-                        WeMessageApi.sendText(talker, msg)
+                        val msg = if (sender.isNotBlank()) "[${sender}] $content" else "$content"
+                        WeMessageApi.createSimpleMsgInfoAndInsert(10000, talker, msg, System.currentTimeMillis())
                     }) { Text("发送") }
                 }
             )
@@ -710,7 +711,8 @@ private fun showAiReplyDialog(context: Context) {
             imgFile.absolutePath
         } catch (e: Exception) { null }
     }
-    @Composable
+}
+@Composable
 private fun FeatureChip(text: String, icon: ImageVector, onClick: () -> Unit) {
     AssistChip(
         onClick = onClick,

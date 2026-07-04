@@ -16,10 +16,10 @@ import kotlinx.coroutines.withContext
 @Feature(
     name = "密友批量导入",
     categories = ["联系人"],
-    description = "从好友列表批量选择导入密友"
+    description = "选择好友导入为密友，其他密友功能共享此列表（带头像、搜索、全选）"
 )
 object FriendBatchImport : ClickableFeature() {
-    private const val KEY_FRIEND_LIST = "friend_batch_list"
+    private const val KEY_FRIEND_LIST = "friend_vibrate_contacts"
 
     override fun onEnable() {}
 
@@ -35,13 +35,13 @@ object FriendBatchImport : ClickableFeature() {
             val current = WePrefs.getStringSetOrDef(KEY_FRIEND_LIST, emptySet())
             showComposeDialog(context) {
                 ContactsSelector(
-                    title = "批量导入密友",
+                    title = "导入密友（其他密友功能共享此列表）",
                     contacts = friends,
                     initialSelectedWxIds = current,
                     onDismiss = { onDismiss() },
                     onConfirm = { selected ->
                         WePrefs.putStringSet(KEY_FRIEND_LIST, selected)
-                        showToast(context, "已导入${selected.size}个密友")
+                        showToast(context, "已导入${selected.size}个密友，其他密友功能可直接使用")
                         onDismiss()
                     }
                 )

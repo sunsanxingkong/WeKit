@@ -1,5 +1,4 @@
 package dev.ujhhgtg.wekit.features.items.system
-
 import android.content.Context
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Text
@@ -18,15 +17,13 @@ import dev.ujhhgtg.wekit.ui.content.TextButton
 import dev.ujhhgtg.wekit.ui.utils.showComposeDialog
 import dev.ujhhgtg.wekit.utils.WeLogger
 import dev.ujhhgtg.wekit.utils.android.showToast
-
 @Feature(
     name = "微信团队消息",
     categories = ["系统"],
-    description = "在当前聊天界面发送伪装系统消息（自动识别群聊/好友）"
+    description = "在当前聊天界面插入系统提示消息（自动识别群聊/好友）"
 )
 object WeixinTeamSysMsg : ClickableFeature() {
     override fun onEnable() {}
-
     override fun onClick(context: Context) {
         val talker = WeCurrentConversationApi.value
         if (talker.isNullOrEmpty()) {
@@ -34,16 +31,17 @@ object WeixinTeamSysMsg : ClickableFeature() {
             return
         }
         val isGroup = talker.contains("@chatroom")
-        val title = if (isGroup) "发送系统消息到当前群聊" else "发送系统消息给当前好友"
+        val title = if (isGroup) "插入系统消息到当前群聊" else "插入系统消息到当前聊天"
         showComposeDialog(context) {
             var content by remember {
-                mutableStateOf("[系统消息] 如果遇到问题，可轻触此处反馈给我们。")
+                mutableStateOf("如果遇到问题，可轻触此处反馈给我们。")
             }
             AlertDialogContent(
                 title = { Text(title) },
                 text = {
                     Column {
                         Text("目标: $talker")
+                        Text("将以系统提示样式插入（灰色居中，不显示发送者）")
                         TextField(value = content, onValueChange = { content = it }, label = { Text("消息内容") })
                     }
                 },
@@ -51,11 +49,11 @@ object WeixinTeamSysMsg : ClickableFeature() {
                 confirmButton = {
                     Button(onClick = {
                         try {
-                            WeMessageApi.sendText(talker, content)
-                            showToast(context, "已发送到当前聊天")
+                            WeMessageApi.createSimpleMsgInfoAndInsert(10000, talker, content, System.currentTimeMillis())
+                            showToast(context, "已插入系统消息")
                         } catch (e: Exception) {
-                            WeLogger.e("WeixinTeamSysMsg", "send failed", e)
-                            showToast(context, "发送失败")
+                            WeLogger.e("WeixinTeamSysMsg", "insert failed", e)
+                            showToast(context, "插入失败")
                         }
                         onDismiss()
                     }) { Text("发送") }
