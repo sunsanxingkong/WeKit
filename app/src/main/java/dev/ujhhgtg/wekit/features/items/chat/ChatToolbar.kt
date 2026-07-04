@@ -54,6 +54,9 @@ import com.composables.icons.materialsymbols.outlined.Attach_file
 import com.composables.icons.materialsymbols.outlined.Attach_money
 import com.composables.icons.materialsymbols.outlined.Camera
 import com.composables.icons.materialsymbols.outlined.Chat
+import com.composables.icons.materialsymbols.outlined.Auto_awesome
+import com.composables.icons.materialsymbols.outlined.Image
+import com.composables.icons.materialsymbols.outlined.Notifications
 import com.composables.icons.materialsymbols.outlined.Delete
 import com.composables.icons.materialsymbols.outlined.Favorite
 import com.composables.icons.materialsymbols.outlined.Format_list_numbered
@@ -124,6 +127,9 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
     // 快捷回复 is a wekit-injected item (not backed by a WeChat grid tool), so it lives
     // outside NAME_TO_ICON_MAP. Its icon is resolved via iconFor().
     private const val QUICK_REPLY_NAME = "快捷回复"
+    private const val AI_REPLY_NAME = "AI回复"
+    private const val AI_IMAGE_NAME = "AI画图"
+    private const val SYSMSG_NAME = "系统消息"
 
     private val methodAppPanelInitAppGrid by dexMethod {
         matcher {
@@ -178,7 +184,13 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
     }
 
     private fun iconFor(name: String): ImageVector =
-        if (name == QUICK_REPLY_NAME) MaterialSymbols.Outlined.Chat else NAME_TO_ICON_MAP.getValue(name)
+        when (name) {
+            QUICK_REPLY_NAME -> MaterialSymbols.Outlined.Chat
+            AI_REPLY_NAME -> MaterialSymbols.Outlined.Auto_awesome
+            AI_IMAGE_NAME -> MaterialSymbols.Outlined.Image
+            SYSMSG_NAME -> MaterialSymbols.Outlined.Notifications
+            else -> NAME_TO_ICON_MAP.getValue(name)
+        }
 
     // ensures 快捷回复 is present and ordered first while keeping the user's saved order for
     // everything else; safe to call on legacy configs that predate the feature
@@ -187,6 +199,7 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
         result.remove(QUICK_REPLY_NAME)
         result.add(0, QUICK_REPLY_NAME)
         NAME_TO_ICON_MAP.keys.forEach { if (it !in result) result.add(it) }
+        listOf(AI_REPLY_NAME, AI_IMAGE_NAME, SYSMSG_NAME).forEach { if (it !in result) result.add(it) }
         return result
     }
 
@@ -329,6 +342,15 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
                             list.add(QUICK_REPLY_NAME to {
                                 showQuickReplyPicker(activity)
                             })
+                            list.add(AI_REPLY_NAME to {
+                                showAiReplyDialog(activity)
+                            })
+                            list.add(AI_IMAGE_NAME to {
+                                showAiImageDialog(activity)
+                            })
+                            list.add(SYSMSG_NAME to {
+                                showSysMsgDialog(activity)
+                            })
 
                             list.add("相册" to {
                                 firstTool.onClickListener.onItemClick(firstTool.gridView.get()!!, firstTool.itemView.get()!!, 0, 0)
@@ -353,7 +375,7 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
                             }
 
                             list.distinctBy { it.first }
-                                .filter { it.first in enabledItems }
+                                .filter { it.first in enabledItems || it.first == AI_REPLY_NAME || it.first == AI_IMAGE_NAME || it.first == SYSMSG_NAME }
                                 .sortedBy { item ->
                                     val idx = orderList.indexOf(item.first)
                                     if (idx == -1) Int.MAX_VALUE else idx
@@ -547,7 +569,148 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
     }
 }
 
-@Composable
+private fun showAiReplyDialog(context: Context) {
+        showComposeDialog(context) {
+            var prompt by remember { mutableStateOf("") }
+            AlertDialogContent(
+                title = { Text(AI_REPLY_NAME) },
+                text = {
+                    Column {
+                        Text("输入上下文或对方消息，AI生成回复")
+                        TextField(
+                            value = prompt,
+                            onValueChange = { prompt = it },
+                            label = { Text("输入内容") }
+                        )
+                    }
+                },
+                dismissButton = { TextButton(onDismiss) { Text("取消") } },
+                confirmButton = {
+                    Button(onClick = {
+                        if (prompt.isBlank()) return@Button
+                        val talker = WeCurrentConversationApi.value
+                        onDismiss()
+                        if (talker.isNullOrEmpty()) return@Button
+                        showToast(context, "AI生成中...")
+                        Thread {
+                            val reply = callAiText(prompt)
+                            if (reply != null) WeMessageApi.sendText(talker, reply)
+                        }.start()
+                    }) { Text("生成并发送") }
+                }
+            )
+        }
+    }
+    private fun showAiImageDialog(context: Context) {
+        showComposeDialog(context) {
+            var prompt by remember { mutableStateOf("") }
+            AlertDialogContent(
+                title = { Text(AI_IMAGE_NAME) },
+                text = {
+                    Column {
+                        Text("输入图片描述，AI生成并发送")
+                        TextField(
+                            value = prompt,
+                            onValueChange = { prompt = it },
+                            label = { Text("图片描述") }
+                        )
+                    }
+                },
+                dismissButton = { TextButton(onDismiss) { Text("取消") } },
+                confirmButton = {
+                    Button(onClick = {
+                        if (prompt.isBlank()) return@Button
+                        val talker = WeCurrentConversationApi.value
+                        onDismiss()
+                        if (talker.isNullOrEmpty()) return@Button
+                        showToast(context, "AI生成中...")
+                        Thread {
+                            val imgPath = callAiImage(prompt)
+                            if (imgPath != null) WeMessageApi.sendImage(talker, imgPath)
+                        }.start()
+                    }) { Text("生成并发送") }
+                }
+            )
+        }
+    }
+    private fun showSysMsgDialog(context: Context) {
+        showComposeDialog(context) {
+            var sender by remember { mutableStateOf("") }
+            var content by remember { mutableStateOf("") }
+            AlertDialogContent(
+                title = { Text(SYSMSG_NAME) },
+                text = {
+                    Column {
+                        Text("以系统消息样式发送到当前聊天")
+                        TextField(value = sender, onValueChange = { sender = it }, label = { Text("发送者标识") })
+                        TextField(value = content, onValueChange = { content = it }, label = { Text("消息内容") })
+                    }
+                },
+                dismissButton = { TextButton(onDismiss) { Text("取消") } },
+                confirmButton = {
+                    Button(onClick = {
+                        if (content.isBlank()) return@Button
+                        val talker = WeCurrentConversationApi.value
+                        onDismiss()
+                        if (talker.isNullOrEmpty()) return@Button
+                        val msg = if (sender.isNotBlank()) "[${sender}] $content" else "[系统消息] $content"
+                        WeMessageApi.sendText(talker, msg)
+                    }) { Text("发送") }
+                }
+            )
+        }
+    }
+    private fun callAiText(userMessage: String): String? {
+        return try {
+            val baseUrl = WePrefs.getStringOrDef("ai_text_base_url", "https://api.3213218.xyz/v1/chat/completions")
+            val apiKey = WePrefs.getStringOrDef("ai_text_api_key", "fkall")
+            val model = WePrefs.getStringOrDef("ai_text_model", "fkall-文本")
+            val conn = java.net.URL(baseUrl).openConnection() as java.net.HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("Authorization", "Bearer $apiKey")
+            conn.connectTimeout = 30000
+            conn.readTimeout = 30000
+            val body = org.json.JSONObject().apply {
+                put("model", model)
+                put("messages", org.json.JSONArray().apply {
+                    put(org.json.JSONObject().put("role", "system").put("content", "You are a helpful assistant. Reply concisely in Chinese."))
+                    put(org.json.JSONObject().put("role", "user").put("content", userMessage))
+                })
+            }
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            val response = conn.inputStream.bufferedReader().use { it.readText() }
+            org.json.JSONObject(response).getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
+        } catch (e: Exception) { null }
+    }
+    private fun callAiImage(prompt: String): String? {
+        return try {
+            val baseUrl = WePrefs.getStringOrDef("ai_image_base_url", "https://api.3213218.xyz/v1/images/generations")
+            val apiKey = WePrefs.getStringOrDef("ai_image_api_key", "fkall")
+            val model = WePrefs.getStringOrDef("ai_image_model", "fkall-图像")
+            val conn = java.net.URL(baseUrl).openConnection() as java.net.HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("Authorization", "Bearer $apiKey")
+            conn.connectTimeout = 60000
+            conn.readTimeout = 60000
+            val body = org.json.JSONObject().apply {
+                put("model", model)
+                put("prompt", prompt)
+                put("n", 1)
+                put("response_format", "b64_json")
+            }
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            val response = conn.inputStream.bufferedReader().use { it.readText() }
+            val b64 = org.json.JSONObject(response).getJSONArray("data").getJSONObject(0).getString("b64_json")
+            val imgBytes = java.util.Base64.getDecoder().decode(b64)
+            val cacheDir = java.io.File(android.app.ActivityThread.currentApplication()?.cacheDir, "ai_images").apply { mkdirs() }
+            val imgFile = java.io.File(cacheDir, "ai_${System.currentTimeMillis()}.png")
+            java.io.FileOutputStream(imgFile).use { it.write(imgBytes) }
+            imgFile.absolutePath
+        } catch (e: Exception) { null }
+    }
+    @Composable
 private fun FeatureChip(text: String, icon: ImageVector, onClick: () -> Unit) {
     AssistChip(
         onClick = onClick,
