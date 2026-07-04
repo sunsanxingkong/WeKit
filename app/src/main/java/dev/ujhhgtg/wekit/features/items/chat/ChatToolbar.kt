@@ -14,8 +14,8 @@ import android.widget.TextView
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -570,7 +570,9 @@ object ChatToolbar : ClickableFeature(), IResolveDex {
                 }
             )
         }
-private fun showAiReplyDialog(context: Context) {
+    }
+
+    private fun showAiReplyDialog(context: Context) {
         showComposeDialog(context) {
             var prompt by remember { mutableStateOf("") }
             AlertDialogContent(
@@ -637,24 +639,24 @@ private fun showAiReplyDialog(context: Context) {
     private fun showSysMsgDialog(context: Context) {
         showComposeDialog(context) {
             var sender by remember { mutableStateOf("") }
-            var content by remember { mutableStateOf("") }
+            var msgContent by remember { mutableStateOf("") }
             AlertDialogContent(
                 title = { Text(SYSMSG_NAME) },
                 text = {
                     Column {
-                        Text("以系统消息样式发送到当前聊天")
-                        TextField(value = sender, onValueChange = { sender = it }, label = { Text("发送者标识") })
-                        TextField(value = content, onValueChange = { content = it }, label = { Text("消息内容") })
+                        Text("以系统提示样式插入到当前聊天（灰色居中，不显示发送者）")
+                        TextField(value = sender, onValueChange = { sender = it }, label = { Text("发送者标识（可选）") })
+                        TextField(value = msgContent, onValueChange = { msgContent = it }, label = { Text("消息内容") })
                     }
                 },
                 dismissButton = { TextButton(onDismiss) { Text("取消") } },
                 confirmButton = {
                     Button(onClick = {
-                        if (content.isBlank()) return@Button
+                        if (msgContent.isBlank()) return@Button
                         val talker = WeCurrentConversationApi.value
                         onDismiss()
                         if (talker.isNullOrEmpty()) return@Button
-                        val msg = if (sender.isNotBlank()) "[${sender}] $content" else "$content"
+                        val msg = if (sender.isNotBlank()) "[${sender}] $msgContent" else msgContent
                         WeMessageApi.createSimpleMsgInfoAndInsert(10000, talker, msg, System.currentTimeMillis())
                     }) { Text("发送") }
                 }
@@ -712,6 +714,7 @@ private fun showAiReplyDialog(context: Context) {
         } catch (e: Exception) { null }
     }
 }
+
 @Composable
 private fun FeatureChip(text: String, icon: ImageVector, onClick: () -> Unit) {
     AssistChip(
