@@ -8,8 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import dev.ujhhgtg.wekit.dexkit.abc.IResolveDex
-import dev.ujhhgtg.wekit.dexkit.dsl.dexMethod
+import dev.ujhhgtg.wekit.features.api.core.WeMessageApi
 import dev.ujhhgtg.wekit.features.api.ui.WeCurrentConversationApi
 import dev.ujhhgtg.wekit.features.core.ClickableFeature
 import dev.ujhhgtg.wekit.features.core.Feature
@@ -23,15 +22,9 @@ import dev.ujhhgtg.wekit.utils.android.showToast
 @Feature(
     name = "微信团队消息",
     categories = ["系统"],
-    description = "以微信团队身份向当前聊天发送伪装系统消息（支持群聊和好友）"
+    description = "在当前聊天界面发送伪装系统消息（自动识别群聊/好友）"
 )
-object WeixinTeamSysMsg : ClickableFeature(), IResolveDex {
-    private val methodInsertSysMsg by dexMethod {
-        matcher {
-            usingStrings("MicroMsg.HoneyPayUtil", "insert sys msg: %s, %s")
-        }
-    }
-
+object WeixinTeamSysMsg : ClickableFeature() {
     override fun onEnable() {}
 
     override fun onClick(context: Context) {
@@ -41,45 +34,33 @@ object WeixinTeamSysMsg : ClickableFeature(), IResolveDex {
             return
         }
         val isGroup = talker.contains("@chatroom")
-        val title = if (isGroup) "发送微信团队消息到当前群聊" else "发送微信团队消息给当前好友"
+        val title = if (isGroup) "发送系统消息到当前群聊" else "发送系统消息给当前好友"
         showComposeDialog(context) {
-            var sender by remember { mutableStateOf("weixin") }
             var content by remember {
-                mutableStateOf("如果遇到问题，可<a href=\"weixin://dl/feedback?from=一级\">轻触此处</a>反馈给我们。")
+                mutableStateOf("[系统消息] 如果遇到问题，可轻触此处反馈给我们。")
             }
             AlertDialogContent(
                 title = { Text(title) },
                 text = {
                     Column {
                         Text("目标: $talker")
-                        TextField(value = sender, onValueChange = { sender = it }, label = { Text("发送者标识") })
-                        TextField(value = content, onValueChange = { content = it }, label = { Text("消息内容 (支持HTML)") })
+                        TextField(value = content, onValueChange = { content = it }, label = { Text("消息内容") })
                     }
                 },
                 dismissButton = { TextButton(onDismiss) { Text("取消") } },
                 confirmButton = {
                     Button(onClick = {
-                        if (send(sender, content)) {
+                        try {
+                            WeMessageApi.sendText(talker, content)
                             showToast(context, "已发送到当前聊天")
-                        } else {
+                        } catch (e: Exception) {
+                            WeLogger.e("WeixinTeamSysMsg", "send failed", e)
                             showToast(context, "发送失败")
                         }
                         onDismiss()
                     }) { Text("发送") }
                 }
             )
-        }
-    }
-
-    private fun send(sender: String, content: String): Boolean {
-        return try {
-            val m = methodInsertSysMsg.method
-            m.isAccessible = true
-            m.invoke(null, sender, content, "")
-            true
-        } catch (e: Exception) {
-            WeLogger.e("WeixinTeamSysMsg", "send failed", e)
-            false
         }
     }
 }
